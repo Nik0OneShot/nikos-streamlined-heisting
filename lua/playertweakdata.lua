@@ -55,7 +55,7 @@ end)
 
 Hooks:PostHook(PlayerTweakData, "_set_sm_wish", "sh__set_sm_wish", function (self)
 	self.damage.MIN_DAMAGE_INTERVAL = 0.25
-	self.damage.REVIVE_HEALTH_STEPS = { 0.5, 0.35, 0.2, 0.1 }
+	self.damage.REVIVE_HEALTH_STEPS = { 0.35, 0.2, 0.1, 0.01 }
 
 	self.suspicion.max_value = 12
 	self.suspicion.range_mul = 1.4
