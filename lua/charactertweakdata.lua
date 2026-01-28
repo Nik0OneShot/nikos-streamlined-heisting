@@ -844,7 +844,7 @@ Hooks:PostHook(CharacterTweakData, "init", "sh_init", function(self)
 
 	-- Tweak some health values for better scaling
 	self.tank.HEALTH_INIT = 200
-	self.tank_hw.HEALTH_INIT = 200
+	self.tank_hw.HEALTH_INIT = 100
 	self.tank_medic.HEALTH_INIT = 200
 	self.tank_mini.HEALTH_INIT = 400
 	self.phalanx_minion.HEALTH_INIT = 100
@@ -861,10 +861,10 @@ Hooks:PostHook(CharacterTweakData, "init", "sh_init", function(self)
 	self.fbi_swat.headshot_dmg_mul = 2
 	self.phalanx_minion.headshot_dmg_mul = 3
 	self.phalanx_vip.headshot_dmg_mul = 3
-	self.tank.headshot_dmg_mul = 4
-	self.tank_hw.headshot_dmg_mul = 4
-	self.tank_medic.headshot_dmg_mul = 4
-	self.tank_mini.headshot_dmg_mul = 4
+	self.tank.headshot_dmg_mul = 8
+	self.tank_hw.headshot_dmg_mul = 1
+	self.tank_medic.headshot_dmg_mul = 8
+	self.tank_mini.headshot_dmg_mul = 8
 
 	-- Clear explosion damage multipliers
 	self.fbi_heavy_swat.damage.explosion_damage_mul = 1
