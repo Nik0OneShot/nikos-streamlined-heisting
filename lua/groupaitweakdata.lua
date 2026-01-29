@@ -59,10 +59,10 @@ Hooks:PostHook(GroupAITweakData, "_init_task_data", "sh__init_task_data", functi
 	-- Assault phases settings
 	self.besiege.assault.delay = { math.lerp(50, 25, f), math.lerp(40, 20, f), math.lerp(30, 15, f) }
 	self.besiege.assault.hostage_hesitation_delay = { 10, 7.5, 5 }
-	self.besiege.assault.force = { 8, 11, 14 }
+	self.besiege.assault.force = { 8, 10, 12 }
 	self.besiege.assault.force_pool = { 60, 70, 80 }
-	self.besiege.assault.force_balance_mul = { 1, 1.5, 2, 2.5 }
-	self.besiege.assault.force_pool_balance_mul = { 1, 1.5, 2, 2.5 }
+	self.besiege.assault.force_balance_mul = { 1, 1.2, 1.4, 1.6 }
+	self.besiege.assault.force_pool_balance_mul = { 1, 1.2, 1.4, 1.6 }
 	self.besiege.assault.sustain_duration_min = { math.lerp(60, 120, f), math.lerp(120, 180, f), math.lerp(180, 240, f) }
 	self.besiege.assault.sustain_duration_max = self.besiege.assault.sustain_duration_min
 	self.besiege.assault.sustain_duration_balance_mul = { 1, 1, 1, 1 }
@@ -531,11 +531,11 @@ Hooks:PostHook(GroupAITweakData, "_init_unit_categories", "sh__init_unit_categor
 		Idstring("units/pd2_dlc_bex/characters/ene_policia_02/ene_policia_02")
 	}
 
-	local limits_shield = { 0, 2, 2, 3, 3, 4, 4, 5 }
-	local limits_medic = { 0, 0, 0, 0, 1, 2, 3, 4 }
-	local limits_taser = { 0, 0, 1, 1, 2, 2, 3, 3 }
-	local limits_tank = { 0, 0, 0, 1, 1, 2, 2, 3 }
-	local limits_spooc = { 0, 0, 0, 1, 1, 2, 2, 3 }
+	local limits_shield = { 0, 1, 2, 2, 2, 2, 2, 3 }
+	local limits_medic = { 0, 0, 0, 0, 1, 1, 2, 2 }
+	local limits_taser = { 0, 0, 1, 1, 2, 2, 2, 3 }
+	local limits_tank = { 0, 0, 0, 1, 1, 1, 1, 2 }
+	local limits_spooc = { 0, 0, 0, 1, 1, 2, 3, 3 }
 	self.special_unit_spawn_limits.shield = limits_shield[difficulty_index]
 	self.special_unit_spawn_limits.medic = limits_medic[difficulty_index]
 	self.special_unit_spawn_limits.taser = limits_taser[difficulty_index]
