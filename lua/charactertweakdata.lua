@@ -973,10 +973,15 @@ CharacterTweakData.hp_multipliers = {
 	1, 1, 1.5, 2, 3, 4, 6, 8
 }
 
+CharacterTweakData.dozer_hp_multipliers = { -- really ghetto way of doing it but i hate these dumb green black white weird camo red individuals who are in desperate need of losing weight. one of them also needs to stop taking superhumanizing steroids.
+	1, 1, 1, 1.2, 1.5, 1.85, 3, 4
+}
+
 function CharacterTweakData:_set_presets()
 	local diff_i = self.tweak_data:difficulty_to_index(Global.game_settings and Global.game_settings.difficulty or "normal")
 	local diff_i_norm = math.max(0, diff_i - 2) / (#self.tweak_data.difficulties - 2)
 	local hp_mul = self.hp_multipliers[diff_i]
+	local dozer_hp_mul = self.dozer_hp_multipliers[diff_i]
 
 	for _, name in pairs(self._enemy_list) do
 		local char_preset = self[name]
@@ -1008,8 +1013,8 @@ function CharacterTweakData:_set_presets()
 	self.spooc.spooc_attack_timeout = { math.lerp(8, 3, diff_i_norm), math.lerp(10, 4, diff_i_norm) }
 
 	-- Dozer armor damage multiplier
-	self.tank_armor_damage_mul = 1 / hp_mul
-	self.tank_glass_damage_mul = 1 / math.max(1, hp_mul * 0.5)
+	self.tank_armor_damage_mul = 1 / dozer_hp_mul
+	self.tank_glass_damage_mul = 1 / math.max(1, dozer_hp_mul * 0.5) -- then we slap this dumb shit here and pretend it never happened in the first place.
 end
 
 CharacterTweakData._set_easy = CharacterTweakData._set_presets
