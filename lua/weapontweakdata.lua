@@ -88,9 +88,9 @@ function WeaponTweakData:_set_presets()
 		if k:match("_turret_module") then
 			v.DAMAGE = diff_i
 			v.DAMAGE_MUL_RANGE = turret_damage_mul
-			v.HEALTH_INIT = 500 * diff_i
-			v.SHIELD_HEALTH_INIT = 100 * diff_i
-			v.CLIP_SIZE = 300 + 25 * diff_i
+			v.HEALTH_INIT = 50 * diff_i -- 500 * diff_i > 50 * diff_i
+			v.SHIELD_HEALTH_INIT = 100 * diff_i -- 100 * diff_i > 100 * diff_i
+			v.CLIP_SIZE = 50 + 50 * diff_i / 2 -- 300 + 25 * diff_i > 50 + 50 * diff_i / 2
 			v.BAG_DMG_MUL = 20
 			v.SHIELD_DMG_MUL = 1
 			v.FIRE_DMG_MUL = 1
