@@ -1,5 +1,5 @@
 local difficulty = Global.game_settings and Global.game_settings.difficulty or "normal"
-local difficulty_index = tweak_data:difficulty_to_index(difficulty)
+local difficulty_index = tweakdata:difficulty_to_index(difficulty)
 local pro_job = Global.game_settings and Global.game_settings.one_down
 
 -- Clones a weapon preset and optionally sets values for all weapons contained in that preset
