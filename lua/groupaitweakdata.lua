@@ -58,7 +58,7 @@ Hooks:PostHook(GroupAITweakData, "_init_task_data", "sh__init_task_data", functi
 
 	-- Assault phases settings
 	self.besiege.assault.delay = { math.lerp(50, 25, f), math.lerp(40, 20, f), math.lerp(30, 15, f) }
-	self.besiege.assault.hostage_hesitation_delay = { 10, 7.5, 5 }
+	self.besiege.assault.hostage_hesitation_delay = { 30, 25, 20 } -- { 10, 7.5, 5 } > { 30, 25, 20 }
 	self.besiege.assault.force = { 8, 11, 14 }
 	self.besiege.assault.force_pool = { 60, 70, 80 }
 	self.besiege.assault.force_balance_mul = { 1, 1.5, 2, 2.5 }
@@ -535,7 +535,7 @@ Hooks:PostHook(GroupAITweakData, "_init_unit_categories", "sh__init_unit_categor
 	local limits_medic = { 0, 0, 0, 0, 1, 2, 3, 4 }
 	local limits_taser = { 0, 0, 1, 1, 2, 2, 3, 3 }
 	local limits_tank = { 0, 0, 0, 1, 1, 2, 2, 3 }
-	local limits_spooc = { 0, 0, 0, 1, 1, 2, 2, 3 }
+	local limits_spooc = { 0, 0, 0, 1, 1, 2, 3, 4 } -- { 0, 0, 0, 1, 1, 2, 2, 3 } > { 0, 0, 0, 1, 1, 2, 3, 4 }
 	self.special_unit_spawn_limits.shield = limits_shield[difficulty_index]
 	self.special_unit_spawn_limits.medic = limits_medic[difficulty_index]
 	self.special_unit_spawn_limits.taser = limits_taser[difficulty_index]
