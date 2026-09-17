@@ -5,7 +5,8 @@ function PlayerManager:damage_reduction_skill_multiplier(...)
 
 	local player = self:player_unit()
 	if player and player:movement()._current_state_name == "driving" then
-		dmg_reduction = dmg_reduction * 0.2 -- 0.5 > 0.2, the car incident of 2024. | im actually considering setting this to 0.01, to basically remove any damage when in cars, but reduce car health to acceptable levels, forcing you to leave the car to repair it... that'd be interesting.
+		dmg_reduction = dmg_reduction * 0.01 -- 0.5 > 0.2, the car incident of 2024. | im actually considering setting this to 0.01, to basically remove any damage when in cars, but reduce car health to acceptable levels, forcing you to leave the car to repair it... that'd be interesting.
+											 -- done, although you'll have to use my complements mod to make it properly work.
 	end
 
 	return dmg_reduction
