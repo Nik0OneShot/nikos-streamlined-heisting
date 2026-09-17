@@ -1,13 +1,9 @@
 {
-	"name" : "Streamlined Heisting",
-	"description" : "Normalizes damage values, interpolates falloff, improves cop factions and more!",
+	"name" : "Streamlined Heisting - Nikotine Edition",
+	"description" : "unshitted streamheist - git pull the repo to update.",
 	"author" : "Hoppip",
 	"priority" : 900,
 	"color" : "0.043 0.808 0.6",
 	"image" : "mod.png",
 	"version" : "5.0.0",
-	"updates" : [{
-		"identifier" : "pd2-streamlined-heisting",
-		"host": { "meta": "https://updates.hoppip.at/pd2-streamlined-heisting" }
-	}]
 }
