@@ -5,6 +5,10 @@ Hooks:PreHook(TimerGui, "_set_jamming_values", "sh__set_jamming_values", functio
 	end
 end)
 
+-- if in stealth, make drills not jam. taken from restoration mod.
+function DrillTimerGui:set_jammed(jammed)
+	if jammed and managers.groupai:state():whisper_mode() then return end
+end
 
 -- Skip next scheduled jam if it's going to happen very shortly after unjamming
 Hooks:PostHook(TimerGui, "set_jammed", "sh_set_jammed", function (self, jammed)
