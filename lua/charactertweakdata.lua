@@ -844,7 +844,7 @@ Hooks:PostHook(CharacterTweakData, "init", "sh_init", function(self)
 
 	-- Tweak some health values for better scaling
 	self.tank.HEALTH_INIT = 200
-	self.tank_hw.HEALTH_INIT = 200
+	self.tank_hw.HEALTH_INIT = 75 -- 200 > 75. this is 750 base health.
 	self.tank_medic.HEALTH_INIT = 200
 	self.tank_mini.HEALTH_INIT = 400
 	self.phalanx_minion.HEALTH_INIT = 100
@@ -862,7 +862,7 @@ Hooks:PostHook(CharacterTweakData, "init", "sh_init", function(self)
 	self.phalanx_minion.headshot_dmg_mul = 3
 	self.phalanx_vip.headshot_dmg_mul = 3
 	self.tank.headshot_dmg_mul = 4
-	self.tank_hw.headshot_dmg_mul = 4
+	self.tank_hw.headshot_dmg_mul = 9999 -- 4 > 9999. if you can hit a headshot, that is-
 	self.tank_medic.headshot_dmg_mul = 4
 	self.tank_mini.headshot_dmg_mul = 4
 
@@ -1008,8 +1008,8 @@ function CharacterTweakData:_set_presets()
 	self.spooc.spooc_attack_timeout = { math.lerp(8, 3, diff_i_norm), math.lerp(10, 4, diff_i_norm) }
 
 	-- Dozer armor damage multiplier
-	self.tank_armor_damage_mul = 1 / hp_mul
-	self.tank_glass_damage_mul = 1 / math.max(1, hp_mul * 0.5)
+	self.tank_armor_damage_mul = 1 / 3 -- hp_mul > 3 - a bit more than the glass damage, but this is to insentivize you to aim for headshots. for halloween dozers, i dunno, thats why i made them have such low health.
+	self.tank_glass_damage_mul = 1 / math.max(1, 2 * 0.5) -- 1, hp_mul * 0.5 > 1, 2 * 0.5 - insentivizing headshots. i may increase or decrease this and armor if i find it to be too weak.
 end
 
 CharacterTweakData._set_easy = CharacterTweakData._set_presets
