@@ -1060,7 +1060,7 @@ Hooks:PostHook(CharacterTweakData, "init", "sh_init", function(self)
 	-- Set dodge presets
 	-- if on pro job, increase dodge increment by one. poor > average, average > athletic, heavy > average, athletic > ninja.
 	if pro_job then
-	self.security.dodge = presets.dodge.average
+	self.security.dodge = self.presets.dodge.average
 	self.gensec.dodge = self.presets.dodge.average
 	self.cop.dodge = self.presets.dodge.athletic
 	self.fbi.dodge = self.presets.dodge.athletic
