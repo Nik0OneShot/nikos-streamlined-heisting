@@ -1,120 +1,52 @@
-# Streamlined Heisting
+check the original github repo for its original description: https://github.com/segabl/pd2-streamlined-heisting
 
-Streamlined Heisting makes a lot of the gameplay mechanics more consistent. It is intended to build on what I think Overkill tried to accomplish rather than being a complete rebalance mod. As such, the mod doesn't add tons of new features or enemies and doesn't touch player balance or skills. The changes this mod makes are intended to make the game more consistent by replacing some of the very outdated code and fixing broken and disabled features.  
-  
-For a player side balance, check out [Streamlined Heisting Complements](https://github.com/segabl/pd2-sh-complements), a small tweaks mod specifically made with Streamlined Heisting in mind.  
-Also check out [Alarmingly Streamlined Spawngroups](https://github.com/erushinj/moon-alarmingly-streamlined-spawngroups) for some cool extra features and further customization options.  
-  
-As with all mods that extensively change mechanics or add new units, this mod locks your matchmaking and you will only be able to play with other people that are also using it. When enabling or disabling the mod from the BLT mods menu make sure to restart the game to avoid issues.
 
-## Compatibility
+intended to be used with: https://github.com/Nik0OneShot/nikos-streamlined-heisting-complements/tree/master
 
-Mods that drastically change enemy AI, enemy weapons or spawngroups could cause conflicts or crashes, you will be asked to disable mods that are confirmed to be incompatible automatically. Mods that change enemy visuals are generally supported, most mods will be detected automatically and changes done by this mod will be disabled if they are incompatible, for some more complex mods you might have to turn off the faction improvements for the faction in question in the mod options manually.
 
-## Features
+this is basically just my own version of hoppips streamlined heisting, because i absolutely despise some of the changes made and think they could've been done differently. an example of this would be in regards to bulldozers and their new visor / glass health - bulldozers in vanilla were pushovers with absolutely no fear associated with them, in comparison to payday the heist where they did. perhaps they have some fear on death sentence due to decks like kingpin and green dozers, but they die so quickly that it doesn't really matter. in this, they're a lot stronger - more capable - and in doing so, have become bullet sponges.
 
-### Improves enemy presets and weapon handling
+the problem is they deal lots of damage, are relatively fast all things considered, and take way too many bullets to kill. visor and then glass health combined forces you to play the absolute meta to be able to deal with them, which i don't think i need to state why is unfun. and, mind you, this isn't even me mentioning the fact that the visor and glass health isn't REALLY health. it's just dividing all damage you deal to it down to minuscule factions... 
 
-Vanilla uses multiple presets that are assigned based on difficulty, but not every difficulty has its own preset. Presets are then further changed in different functions which leads to a lot of oversights and inconsistencies. The entire NPC shooting behaviour is needlessly complex and features like aim delay and focus delay don't work as intended. The preset system has been simplified and bugs in NPC weapon handling have been fixed.
+	self.tank_armor_damage_mul = 1 / hp_mul
+	self.tank_glass_damage_mul = 1 / math.max(1, hp_mul * 0.5)
 
-- Creates and uses a single base weapon preset which scales damage, focus delay and aim delay based on difficulty
-- Changes shotgun preset significantly, giving them very good accuracy to simulate multiple pellets but very harsh damage falloff
-- Changes enemy weapon stats to be consistent across their class (on the same difficulty a JP36 will perform the same as a Car-4)
-- Makes snipers more accurate but take longer to aim before shooting, avoiding cheap instant snipes due to bad RNG
-- Improves the surrender presets, different enemies have different chances to surrender
-- Gives enemies linear damage falloff instead of sudden drops after a distance threshold is reached
-- Fixes accuracy values being ignored for single fire weapons in NPC vs NPC situations
-- Simplifies the clunky fire mode system and interpolates the number of rounds fired based on distance instead (enemies will utilize full auto more)
-- Properly implements and makes use of aim delay, enemies will now take time to aim at their target before shooting (depends on distance and difficulty)
-- Fixes barely working focus delay code, enemies will take some time to reach their maximum accuracy when shooting (depends on difficulty)
-- Allows NPCs to use melee attacks against other NPCs
-- Improves suppression presets to be more distinct between different enemy types
+seriously, what the fuck.
 
-### Overhauls spawn groups and enemy behaviour
+now you'd imagine that bulldozers w/o heads would be easier to kill, right? because their bodies will always take damage? well, no, their armor now actually stops bullets entirely. a good design choice, plus the armor is breakable, but again...bullet sponge. and don't even get me started on the fucking halloween headless dozers and the fact that, despite having no head and therefore no headshot multiplier ('uhm acktually they do have one but its pixel width and you only get awarded a nice 4x damage boost instead of being awarded an instant kill for shooting something that is literally pixel width'), they have the exact same health as all the other bulldozers.
 
-At one point the game had unique spawn groups with different behaviours and tactics which have been disabled or broken over time, like shotgunners or hostage rescue units. Missing tactics have been implemented and spawn groups have been restored and improved to have a bigger variety of enemies and make combat more interesting.
+	self.tank.HEALTH_INIT = 200
+	self.tank_hw.HEALTH_INIT = 200
+	self.tank_medic.HEALTH_INIT = 200
+	self.tank_mini.HEALTH_INIT = 400
 
-- Restores original spawn groups that were disabled, adding back shotgunners, reinforce groups and hostage rescue units
-- Fixes scripted spawns to use the correct enemy faction when spawning enemies
-- Fixes units with defend type objectives rushing the player instead of actually defending their designated areas
-- Adds dynamic reinforce points to loot secure points and the escape zone
-- Fixes enemies crouch-walking when they are supposed to run
-- Implements missing `murder` tactic, enemies with this tactic will focus on finishing off downed and tased players regardless of any aggressive behavior
-- Implements missing `shield` and `shield_cover` tactics, enemies with `shield_cover` tactic will stick closely to group members with `shield` tactic
-- Fixes `ranged_fire` tactic, enemies with this tactic will properly stop and open fire from a distance for a bit when they encounter players
-- Fixes `flank` tactic, enemies will now try to flank properly and more consistently
-- Fixes enemies not pulling back when encountering players during anticipation
-- Reverts changes made to the Taser's line of sight check to allow them to tase more consistently again
-- Makes Cloaker attacks more consistent by removing some of their restrictions and fixes them crouch-charging on clients
-- Makes Shields reduce explosion damage from the front instead of a generic explosion damage resistance
-- Makes Medics require line of sight to heal and slightly increases their healing radius
-- Fixes Bulldozers sprinting when they shouldn't and not switching to walking when they are close enough
-- Adds chance for enemies to use teargas grenades when players camp in an area for too long
-- Makes enemies less hesitant to shoot while moving and react to threats with adequate reactions
-- Fixes enemies walking backwards towards their objective when they are not aware of threats
-- Fixes enemy turn behaviour/speed differing between host and client and makes it more lenient
-- Updates old boss enemies with the new boss logic to make those boss fights more interesting
-- Makes enemies use more varied dodge directions
+thats 2000 health, plus difficulty scaling by the way. you can be dealing with, at maximum, 2000 * 8 for a spectacular health pool of **16000 FUCKING HEALTH.** don't want to play meta? TOO BAD. what a fucking joke.
 
-### Improves the difficulty curve
+oh, and thats just bulldozers. bulldozers, enemies you'll find to be rather common, but what about mini bosses? how are they improved? are they still dogshit? in my opinion, they're worse now.
 
-The vanilla difficulty curve is all over the place with some difficulties feeling exactly the same and others introducing major jumps. Enemy spawns are highly exaggerated because issues in presets, behaviour and pathing prevent them from actually being a threat. Heist difficulty progression is unused and enemies will swarm you in full force as soon as a heist goes loud instead of the intended increasing force as time progresses. Difficulty dependent values have all been rebalanced to create a smoother curve and gradually increasing difficulties. Less but more responsive enemies will keep you on your toes instead of just staring you down waiting to be shot.
+in vanilla, minibosses take headshot damage, plus some are able to be stunned or just melted to death. they're pushovers, but they make a rather cool feeling to their presence, especially considering that they tend to use weapons that other npcs can't. for instance, chavez having akimbo pistols, sosa having the little friend and having his big entrance being a scarface reference, one of them literally having a flamethrower. they're cool, weak, but still cool.
 
-- Properly scales enemy health, damage, aim and focus delay values according to difficulty
-- Makes each difficulty have custom player revive health percentages (from 65% on normal to 5% on DS)
-- Gives each difficulty custom suspicion settings (smoother increase in stealth difficulty)
-- Reduces the potential maximum amount of active enemies on the map
-- Makes Bulldozer armor block damage and scales its HP with difficulty
-- Scales assault duration with difficulty and reduces spawn pool to make it possible to end the assault earlier when spawns are exhausted
-- Makes use of and smoothes out heist difficulty progression such that enemy force and special frequency increases as the heist progresses
-- Reduces player grace period time but makes it always use the full duration (0.25s)
-- Makes the assault delay caused by having hostages scale with the amount of hostages (minimum of 5s per hostage, up to 4 hostages)
+streamlined heisting makes them overstay their welcome by making them absurdly tanky, for example, heres chavez.
 
-### Standardizes enemy visuals
+```
+Hooks:PostHook(CharacterTweakData, "_init_chavez_boss", "sh__init_chavez_boss", function(self, presets)
+  self.chavez_boss.HEALTH_INIT = 400
+	self.chavez_boss.player_health_scaling_mul = 1.25
+	self.chavez_boss.headshot_dmg_mul = 0.75
+	self.chavez_boss.no_headshot_add_mul = true
+	self.chavez_boss.damage.explosion_damage_mul = 0.5
+	self.chavez_boss.damage.hurt_severity = presets.hurt_severities.no_hurts
+	self.chavez_boss.use_animation_on_fire_damage = false
+	self.chavez_boss.move_speed = presets.move_speed.fast
+	self.chavez_boss.no_run_start = true
+	self.chavez_boss.no_run_stop = true
+end)
+```
 
-There are some inconsistencies with various enemy factions in the game that lead to issues like enemy recognition or missing enemy types. The changes to the enemy factions aim to fix all these problems.
+chavez now has 4000 health, plus difficulty scaling, plus it increases for EVERY HUMAN PLAYER IN THE HEIST. and you know what the craziest part is? he not only takes **LESS EXPLOSION DAMAGE**, but ***HAS NO FUCKING HEADSHOT MULTIPLIERS!***
 
-- Adds unique weapons for different factions, similar to how GenSec uses their own rifles and shotguns
-- Adds chest armor to the heavy SWAT on Normal and Hard, to be in line with the heavy SWATs on other difficulties
-- Makes shotgunners more distinct from their rifle counterparts (added shell straps, gadget variations)
-- Replaces the lazy recolors for Mexican police with custom models based on the less seen SWAT models
-- Adds missing enemy types (ZEAL Shotgunners, ZEAL Medic, GenSec and ZEAL Sniper)
-- Fixes heavy Murkywater units body armor protecting their back
-- Fixes some broken LOD models and removes some normal seams
+you have to be fucking KIDDING. TELL ME A SINGLE PART OF CHAVEZ WHERE HIS HEAD IS INCAPABLE OF BEING SHOT AT? TELL ME A SINGLE PART OF HIS BODY WHERE HE REDUCES ANY AND ALL FORMS OF EXPLOSIVES? TELL ME A SINGLE PART OF HIM THAT PREVENTS HIM FROM SUFFERING FROM FIRE? WHAT THE FUCK ARE YOU THINKING. same person who programmed this complains about what jules did regarding one down, by the way.
 
-### Other changes
+all you had to do to make minibosses more effective at their job is to literally remove their hurt severities. that is all you have to do. you don't need to increase their health, you don't need to make them tanky, because if you do that they overstay their welcome and they become **ANNOYING.**
 
-These are miscellaneous changes, fixes and optimizations that don't fit any of the above categories.
-
-- Reduces the effect of health granularity drastically (damage dealt to enemies is closer to the actual weapon damage listed in the inventory)
-- Restores spawning voicelines for Bulldozers and Tasers and spawn noise for scripted Cloaker spawns
-- Improves variety of enemy combat chatter and enables idle chatter for stealth
-- Makes special enemies and bosses more responsive by detaching their attack logic updates from the enemy task scheduler
-- Adds a short delay before SWAT turrets retract to repair, giving a longer time window to deal damage after their shield breaks
-- Makes sentry guns not count as criminals which stops enemies from pathing to them and ultimately get stuck
-- Fixes the assault fade phase almost always ending after the minimum amount of time
-- Increases the time it takes for Winters to reach the maximum damage reduction (from 10-50% in 40s to 5-50% in 90s)
-- Makes hurt and knockdown animations not stackable, no new animation triggers while there's already one playing
-- Fixes some spawn points being unavailable on certain maps due to incorrect pathing checks
-- Makes flashbangs more consistent and less penalizing when looking away in time
-- Fixes and optimizes fire spawned from molotovs and tripmines
-- Fixes various synchronization issues where incorrect or incomplete data was sent to clients
-- Tweaks some heist mission scripts to play better or fix issues
-- Makes secured additional bags in Crime Spree reward one level per bag (up to a maximum of 20 additional levels)
-- Fixes Crime Spree level gain being calculated incorrectly when the host has a different level
-- Adds hints when an enemy can't be intimidated due to temporary cooldown, no surrender preset or maximum amount of hostages reached
-- Fixes Jokers sometimes following the wrong player
-- Makes civilians' reactions to intimidation more consistent and fixes them jumping into a standing position randomly
-- Fixes enemies sometimes just disappearing when they are told to retreat
-- Makes the maximum amount of random drill jams depend on the drill timer and prevents jams shortly after fixing a drill
-
-## Credits
-
-- [AverageChan](https://modworkshop.net/user/97086) for testing, feedback and fixing some assets
-- [fuglore](https://modworkshop.net/user/32041) for inspiring some gameplay features and fixes
-- [Jarey_](https://modworkshop.net/user/1664) for providing the base texture for the ZEAL medic
-- [Masavik](https://modworkshop.net/user/52365) for creating the GenSec shield model
-- [miss miki](https://modworkshop.net/user/55749) for testing, feedback and some mission script improvements
-- [hitscanner](https://modworkshop.net/user/hitscanner), [Nardo](https://modworkshop.net/user/19738), [nikita](https://modworkshop.net/user/54264) and others for testing and feedback
-- [IareAwesome17](https://modworkshop.net/user/138923) for providing additional model improvements
-- [PlayBONK](https://modworkshop.net/user/13634) for creating the shield bash animation
+anyway, theres also other things that i think should be changed but i don't really want to detail them here. i'll probably update this readme in the future if i think it's notable to mention, but yeah. streamlined heisting is fun, i just wish the developer actually played his own mod so he could see how genuinely dogshit it is to endure some of these enemies.
