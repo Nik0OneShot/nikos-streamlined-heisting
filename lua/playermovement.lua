@@ -1,8 +1,10 @@
 -- port code from super serious shooter that makes cloaker kicks damage you for 25% of your max hp!
 
-local pro_job = Global.game_settings.one_down
+--local pro_job = Global.game_settings.one_down
 
 Hooks:PreHook(PlayerMovement, "on_SPOOCed", "on_SPOOCed_sss", function(self)
+local pro_job = Global.game_settings.one_down
+
 	if not self._unit:character_damage().damage_health then
 		return
 	end
