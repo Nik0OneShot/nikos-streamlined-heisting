@@ -1,3 +1,5 @@
+local pro_job = Global.game_settings.one_down
+
 -- More consistent Cloaker attacks, why wouldn't they be allowed to start a sprint attack when another cop is in the way?
 function SpoocLogicAttack._upd_spooc_attack(data, my_data)
 	if my_data.spooc_attack or data.t <= data.spooc_attack_timeout_t or data.unit:movement():chk_action_forbidden("walk") then
@@ -18,7 +20,12 @@ function SpoocLogicAttack._upd_spooc_attack(data, my_data)
 		return
 	end
 
-	if SpoocLogicAttack._is_last_standing_criminal(focus_enemy) or not focus_enemy.unit:movement():is_SPOOC_attack_allowed() or focus_enemy.unit:movement():zipline_unit() then
+	if SpoocLogicAttack._is_last_standing_AI_criminal() or not focus_enemy.unit:movement():is_SPOOC_attack_allowed() or focus_enemy.unit:movement():zipline_unit() then
+		return
+	else
+
+	-- in pro job, cloakers will now kick lone heisters. this is why i allowed for up to 4 cloakers on death sentence, by the way.
+	if pro_job and SpoocLogicAttack._is_last_standing_AI_criminal() then
 		return
 	end
 
