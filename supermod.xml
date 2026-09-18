@@ -52,6 +52,7 @@
 			<post :hook_id="setups/gamesetup"/>
 
 			<group :hook_id="tweak_data/">
+				<post :hook_id="tweakdata"/>
 				<post :hook_id="charactertweakdata"/>
 				<post :hook_id="groupaitweakdata"/>
 				<post :hook_id="levelstweakdata"/>
