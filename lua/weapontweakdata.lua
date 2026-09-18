@@ -38,6 +38,10 @@ Hooks:PostHook(WeaponTweakData, "init", "sh_init", function(self, tweak_data)
 	self.sr2_smg_npc.sounds.prefix = self.sr2_crew.sounds.prefix
 	self.ump_npc.sounds.prefix = self.schakal_crew.sounds.prefix
 
+	-- give snipers much less rate of fire. they literally fire like a fully auto gun.
+	self.m14_sniper_npc.FIRE_MODE = "single"
+	self.m14_sniper_npc.single = { fire_rate 60 / 50 } -- this should hopefully make the fire rate not dogshit.
+
 	-- Make weapons of the same use type have the same stats (damage increase is handled by weapon presets)
 	-- This ensures consistent damage scaling independent of the weapon use of different factions
 	self.ak47_ass_npc = copy_data(self.ak47_ass_npc, self.m4_npc, self.ak47_crew)
