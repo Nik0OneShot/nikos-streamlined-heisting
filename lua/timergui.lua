@@ -8,6 +8,8 @@ end)
 -- if in stealth, make drills not jam. taken from restoration mod.
 function DrillTimerGui:set_jammed(jammed)
 	if jammed and managers.groupai:state():whisper_mode() then return end
+else
+	self:_set_jammed(jammed)
 end
 
 -- Skip next scheduled jam if it's going to happen very shortly after unjamming
