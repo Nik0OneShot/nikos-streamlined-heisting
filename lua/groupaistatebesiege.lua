@@ -8,6 +8,7 @@ local mvec_mul = mvector3.multiply
 local mvec_set = mvector3.set
 local tmp_vec1 = Vector3()
 local tmp_vec2 = Vector3()
+local pro_job = Global.game_settings.one_down
 
 
 -- Make hostage count affect hesitation delay
@@ -662,8 +663,9 @@ function GroupAIStateBesiege:_chk_group_use_grenade(assault_area, group, detonat
 	mvec_add(detonate_offset_pos, detonate_offset)
 
 	-- If players camp a specific area for too long, turn a smoke grenade into a teargas grenade instead
+	-- make tear gas pro job only.
 	local use_teargas
-	if grenade_type == "smoke_grenade" and not assault_area.hostages and assault_area.criminal_entered_t and table.size(assault_area.neighbours) <= 2 then
+	if grenade_type == "smoke_grenade" and not assault_area.hostages and assault_area.criminal_entered_t and table.size(assault_area.neighbours) <= 2 and pro_job then
 		local teargas_chance_times = tweak_data.group_ai.cs_grenade_chance_times or { 60, 240 }
 		local teargas_chance = math.map_range(self._t - assault_area.criminal_entered_t, teargas_chance_times[1], teargas_chance_times[2], 0, 1)
 		if math.random() < teargas_chance then
