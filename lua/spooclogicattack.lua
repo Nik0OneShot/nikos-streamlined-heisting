@@ -21,7 +21,7 @@ function SpoocLogicAttack._upd_spooc_attack(data, my_data)
 	end
 
 	-- cloakers kick you if your by your lonesome, only on projobs.
-	if SpoocLogicAttack._is_last_standing_criminal() and not pro_job or not focus_enemy.unit:movement():is_SPOOC_attack_allowed() or focus_enemy.unit:movement():zipline_unit() then
+	if SpoocLogicAttack._is_last_standing_criminal(focus_enemy) and not pro_job or not focus_enemy.unit:movement():is_SPOOC_attack_allowed() or focus_enemy.unit:movement():zipline_unit() then
 		return
 	end
 
