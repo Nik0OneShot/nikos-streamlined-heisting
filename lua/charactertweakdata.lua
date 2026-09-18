@@ -426,6 +426,7 @@ function CharacterTweakData:_presets(tweak_data, ...)
 	presets.weapon.gang_member.is_lmg.no_autofire_stop = true
 	presets.weapon.gang_member.mini.no_autofire_stop = true
 	presets.gang_member_damage.HEALTH_INIT = 100 + 50 * diff_i
+	presets.gang_member_damage.BLEED_OUT_HEALTH_INIT = 100 * diff_i -- make bleedout health change depending on difficulty.
 	if pro_job then
 	presets.gang_member_damage.MIN_DAMAGE_INTERVAL = 0.1
 	else
@@ -433,6 +434,20 @@ function CharacterTweakData:_presets(tweak_data, ...)
 	end
 	presets.gang_member_damage.REGENERATE_TIME = 2
 	presets.gang_member_damage.REGENERATE_TIME_AWAY = 2
+	presets.gang_member_damage.ARRESTED_TIME = 60 -- 60 seconds if they get arrested.
+	presets.gang_member_damage.damage.hurt_severity = presets.hurt_severities.only_light_hurt -- make them flinch if they take damage
+
+	-- make team a.i have faster speeds, no run start or stop delays, and always face enemy.
+	local team_ai_tweak_names = { "russian", "german", "spanish", "american", "jowi", "old_hoxton", "female_1", "dragan", "jacket", "bonnie", "sokol", "dragon", "bodhi", "jimmy", "sydney", "wild", "chico", "max", "joy", "myh", "ecp_female", "ecp_male" }
+	for _, tweak_name in ipairs(team_ai_tweak_names) do
+		local char_tweaks = {}
+		self[tweak_name] = char_tweaks
+		char_tweaks.move_speed = presets.move_speed.lightning -- same as cloakers, no need to make a custom preset because they move at full speed regardless of direction now.
+		char_tweaks.no_run_start = true
+		char_tweaks.no_run_stop = true
+		char_tweaks.always_face_enemy = true
+		char_tweaks.damage.hurt_severity = presets.hurt_severities.only_light_hurt -- make them flinch if they take damage
+	end
 
 	-- Setup surrender presets
 	presets.surrender.easy = {
