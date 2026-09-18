@@ -435,7 +435,6 @@ function CharacterTweakData:_presets(tweak_data, ...)
 	presets.gang_member_damage.REGENERATE_TIME = 2
 	presets.gang_member_damage.REGENERATE_TIME_AWAY = 2
 	presets.gang_member_damage.ARRESTED_TIME = 60 -- 60 seconds if they get arrested.
-	presets.gang_member_damage.damage.hurt_severity = presets.hurt_severities.only_light_hurt -- make them flinch if they take damage
 
 	-- Setup surrender presets
 	presets.surrender.easy = {
