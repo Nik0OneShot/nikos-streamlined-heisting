@@ -13,6 +13,7 @@ function DrillTimerGui:set_jammed(jammed)
 		self:_set_jammed(jammed)
 	end
 end
+
 -- Skip next scheduled jam if it's going to happen very shortly after unjamming
 Hooks:PostHook(TimerGui, "set_jammed", "sh_set_jammed", function (self, jammed)
 	if not jammed and self._current_jam_timer and self._current_jam_timer < 5 / self:get_timer_multiplier() then
