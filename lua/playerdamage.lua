@@ -44,6 +44,15 @@ end)
 
 -- add these from super serious shooter
 
+Hooks:PreHook(PlayerDamage, "on_arrested", "on_incapacitated_sss", function(self) -- to try to fix a bug where being cuffed...will send you to custody as if you were normally incapacitated.
+	if self._bleed_out then
+		return
+	end
+
+	self._pre_incap_health_ratio = self:health_ratio()
+	self._pre_incap_revive_health_i = self._revive_health_i
+end)
+
 Hooks:PreHook(PlayerDamage, "on_incapacitated", "on_incapacitated_sss", function(self)
 	if self._bleed_out then
 		return
