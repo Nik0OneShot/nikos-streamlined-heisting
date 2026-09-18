@@ -435,20 +435,8 @@ function CharacterTweakData:_presets(tweak_data, ...)
 	presets.gang_member_damage.REGENERATE_TIME = 2
 	presets.gang_member_damage.REGENERATE_TIME_AWAY = 2
 	presets.gang_member_damage.ARRESTED_TIME = 60 -- 60 seconds if they get arrested.
-	--presets.gang_member_damage.damage.hurt_severity = presets.hurt_severities.only_light_hurt -- make them flinch if they take damage
+	presets.gang_member_damage.damage.hurt_severity = presets.hurt_severities.only_light_hurt -- make them flinch if they take damage
 
-	-- make team a.i have faster speeds, no run start or stop delays, and always face enemy.
-	--[[local team_ai_tweak_names = { "russian", "german", "spanish", "american", "jowi", "old_hoxton", "female_1", "dragan", "jacket", "bonnie", "sokol", "dragon", "bodhi", "jimmy", "sydney", "wild", "chico", "max", "joy", "myh", "ecp_female", "ecp_male" }
-	for _, tweak_name in ipairs(team_ai_tweak_names) do
-		local char_tweaks = {}
-		self[tweak_name] = char_tweaks
-		char_tweaks.move_speed = presets.move_speed.lightning -- same as cloakers, no need to make a custom preset because they move at full speed regardless of direction now.
-		char_tweaks.no_run_start = true
-		char_tweaks.no_run_stop = true
-		char_tweaks.always_face_enemy = true
-		char_tweaks.damage.hurt_severity = presets.hurt_severities.only_light_hurt -- make them flinch if they take damage
-	end
---]]
 	-- Setup surrender presets
 	presets.surrender.easy = {
 		base_chance = 0,
@@ -1245,3 +1233,67 @@ CharacterTweakData._set_overkill_145 = CharacterTweakData._set_presets
 CharacterTweakData._set_easy_wish = CharacterTweakData._set_presets
 CharacterTweakData._set_overkill_290 = CharacterTweakData._set_presets
 CharacterTweakData._set_sm_wish = CharacterTweakData._set_presets
+
+-- team a.i changes, overwriting it cuz why not.
+function CharacterTweakData:_init_team_ai(presets)
+	local team_ai_tweak_names = { "russian", "german", "spanish", "american", "jowi", "old_hoxton", "female_1", "dragan", "jacket", "bonnie", "sokol", "dragon",
+								  "bodhi", "jimmy", "sydney", "wild", "chico", "max", "joy", "myh", "ecp_female", "ecp_male" }
+	local char_weapon_tables = self.char_wep_tables
+
+	for _, tweak_name in ipairs(team_ai_tweak_names) do
+		local char_tweaks = {}
+
+		self[tweak_name] = char_tweaks
+		char_tweaks.damage = presets.gang_member_damage
+		char_tweaks.weapon = clone(presets.weapon.gang_member)
+		char_tweaks.weapon.weapons_of_choice = { primary = "wpn_fps_ass_amcar_npc" }
+		char_tweaks.detection = presets.detection.gang_member
+		char_tweaks.move_speed = presets.move_speed.lightning
+		char_tweaks.no_run_start = true
+		char_tweaks.no_run_stop = true
+		char_tweaks.always_face_enemy = true
+		char_tweaks.crouch_move = false
+		char_tweaks.speech_prefix = "rb2"
+		char_tweaks.weapon_voice = "1"
+		char_tweaks.access = "teamAI1"
+		char_tweaks.arrest = { aggression_timeout = 6, arrest_timeout = 240, timeout = 240 }
+	end
+
+	self.german.weapon_voice = "2"
+	self.spanish.weapon_voice = "3"
+	self.american.weapon_voice = "3"
+	self.jowi.weapon_voice = "3"
+	self.old_hoxton.weapon_voice = "3"
+	self.female_1.speech_prefix = "rb7"
+	self.female_1.weapon_voice = "3"
+	self.dragan.speech_prefix = "rb8"
+	self.dragan.weapon_voice = "3"
+	self.jacket.speech_prefix = "rb9"
+	self.jacket.weapon_voice = "3"
+	self.bonnie.speech_prefix = "rb10"
+	self.bonnie.weapon_voice = "3"
+	self.sokol.speech_prefix = "rb11"
+	self.sokol.weapon_voice = "3"
+	self.dragon.speech_prefix = "rb12"
+	self.dragon.weapon_voice = "3"
+	self.bodhi.speech_prefix = "rb13"
+	self.bodhi.weapon_voice = "3"
+	self.jimmy.speech_prefix = "rb14"
+	self.jimmy.weapon_voice = "3"
+	self.sydney.speech_prefix = "rb15"
+	self.sydney.weapon_voice = "3"
+	self.wild.speech_prefix = "rb16"
+	self.wild.weapon_voice = "3"
+	self.chico.speech_prefix = "rb17"
+	self.chico.weapon_voice = "3"
+	self.max.speech_prefix = "rb18"
+	self.max.weapon_voice = "3"
+	self.joy.speech_prefix = "rb19"
+	self.joy.weapon_voice = "3"
+	self.myh.speech_prefix = "rb22"
+	self.myh.weapon_voice = "3"
+	self.ecp_female.speech_prefix = "rb21"
+	self.ecp_female.weapon_voice = "3"
+	self.ecp_male.speech_prefix = "rb20"
+	self.ecp_male.weapon_voice = "3"
+end
