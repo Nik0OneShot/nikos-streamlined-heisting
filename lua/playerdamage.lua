@@ -35,7 +35,9 @@ Hooks:PostHook(PlayerDamage, "change_armor", "sh_change_armor", function (self, 
 	end
 end)
 
--- make one down give you 3 lives instead of 1.
-Hooks:PostHook(PlayerDamage, "init", "onedown_more_like_threedown_haha", function(self)
-	if Global.game_settings.one_down then self.tweak_data.player.damage.LIVES_INIT = 5 end -- 2 > 5
+-- taken from eclipse to prevent a crash
+Hooks:PreHook(PlayerDamage, "replenish", "eclipse_replenish", function(self)
+	if Global.game_settings and Global.game_settings.one_down then
+		self._lives_init = 4
+	end
 end)
