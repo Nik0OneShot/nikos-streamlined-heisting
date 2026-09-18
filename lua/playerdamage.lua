@@ -34,3 +34,8 @@ Hooks:PostHook(PlayerDamage, "change_armor", "sh_change_armor", function (self, 
 		self:_send_set_armor()
 	end
 end)
+
+-- make one down give you 3 lives instead of 1.
+Hooks:PostHook(PlayerDamage, "init", "onedown_more_like_threedown_haha", function(self)
+	if Global.game_settings.one_down then self.tweak_data.player.damage.LIVES_INIT = 5 end -- 2 > 5
+end)
