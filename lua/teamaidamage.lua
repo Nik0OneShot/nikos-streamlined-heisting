@@ -29,6 +29,15 @@ Hooks:OverrideFunction(TeamAIDamage, "_regenerated", function (self)
 	self:_clear_damage_transition_callbacks()
 end)
 
+-- announce low health
+Hooks:PostHook(TeamAIDamage, "_apply_damage", "aaaaaa i need medic bag", function(self)
+	local t = TimerManager:game():time()
+	if (not self._said_hurt_t or self._said_hurt_t + 10 < t) and self._health_ratio < 0.33 and not self:need_revive() and not self._unit:sound():speaking() then
+		self._said_hurt_t = t
+		self._unit:sound():say("g80x_plu", true, true)
+	end
+end)
+
 -- makes it so team a.i can regenerate health even when they're being damaged.
 Hooks:PostHook(TeamAIDamage, "update", "sh_constant_regen", function(self, unit, t, dt)
     if self._dead or self._bleed_out or self._fatal or self._health_ratio >= 1 then
