@@ -52,6 +52,8 @@ Hooks:PostHook(TeamAIDamage, "update", "sh_constant_regen", function(self, unit,
 
     if t >= self._sh_next_regen then
         self._sh_next_regen = t + self._char_dmg_tweak.REGENERATE_TIME
-        self:_regenerated()
+
+        self._health = math.min(self._health + self._HEALTH_INIT * 0.1, self._HEALTH_INIT)
+        self._health_ratio = self._health / self._HEALTH_INIT
     end
 end)
