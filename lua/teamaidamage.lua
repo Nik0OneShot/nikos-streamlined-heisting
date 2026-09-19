@@ -28,3 +28,21 @@ Hooks:OverrideFunction(TeamAIDamage, "_regenerated", function (self)
 
 	self:_clear_damage_transition_callbacks()
 end)
+
+-- makes it so team a.i can regenerate health even when they're being damaged.
+Hooks:PostHook(TeamAIDamage, "update", "sh_constant_regen", function(self, unit, t, dt)
+    if self._dead or self._bleed_out or self._fatal or self._health_ratio >= 1 then
+        self._sh_next_regen = nil
+        return
+    end
+
+    if not self._sh_next_regen then
+        self._sh_next_regen = t + self._char_dmg_tweak.REGENERATE_TIME
+        return
+    end
+
+    if t >= self._sh_next_regen then
+        self._sh_next_regen = t + self._char_dmg_tweak.REGENERATE_TIME
+        self:_regenerated()
+    end
+end)
