@@ -153,6 +153,8 @@
 					<post :hook_id="logics/teamailogicidle"/>
 					<post :hook_id="teamaidamage"/>
 					<post :hook_id="teamaimovement"/>
+					<post :hook_id="teamaibrain"/>
+					<post :hook_id="teamaibase"/>
 				</group>
 
 				<group :hook_id="props/">
