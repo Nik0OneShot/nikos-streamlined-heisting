@@ -70,7 +70,6 @@
 					<post :hook_id="playerdamage"/>
 					<post :hook_id="playermovement"/>
 					<post :hook_id="playerinventory"/>
-					<post :hook_id="playerstandard"/>
 				</group>
 
 				<post :hook_id="characters/characterattentionobject"/>
