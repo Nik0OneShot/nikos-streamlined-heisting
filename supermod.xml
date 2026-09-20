@@ -32,9 +32,11 @@
 				</group>
 
 				<post :hook_id="crimespreemanager"/>
+				<post :hook_id="criminalsmanager"/>
 				<post :hook_id="dynamicresourcemanager"/>
 				<post :hook_id="explosionmanager"/>
 				<post :hook_id="firemanager"/>
+				<post :hook_id="hud/hudteammate"/>
 				<post :hook_id="hudmanager"/>
 				<post :hook_id="missionmanager"/>
 				<post :hook_id="navigationmanager"/>
