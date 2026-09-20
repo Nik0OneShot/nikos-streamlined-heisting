@@ -1,3 +1,5 @@
+-- claude code
+
 -- Team a.i HUD core: shared logic, loaded once by the hook scripts that use it (StreamHeist:require("bot_hud")).
 -- Hook scripts: hudteammate, hudmanager, criminalsmanager, newnpcraycastweaponbase, unitnetworkhandler.
 -- ---------------------------------------------------------------------------------------------------------------
