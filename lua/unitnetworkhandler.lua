@@ -1,3 +1,5 @@
+-- claude code
+
 -- Team a.i HUD (see req/bot_hud.lua)
 if not StreamHeist.bot_hud then
 	StreamHeist:require("bot_hud")
