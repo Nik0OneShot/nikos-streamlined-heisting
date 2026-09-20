@@ -1,3 +1,5 @@
+-- claude code
+
 if not StreamHeist.bot_hud then
 	StreamHeist:require("bot_hud")
 end
