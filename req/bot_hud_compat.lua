@@ -1,3 +1,5 @@
+-- claude code
+
 -- HUD mods the team a.i HUD (req/bot_hud.lua) can't or shouldn't run with. If one of them is enabled, the team a.i HUD
 -- switches itself off completely: none of its hooks are installed, nothing is sent over the network and it never says
 -- hello to a host. The rest of Streamlined Heisting is not affected.
