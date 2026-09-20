@@ -1,3 +1,5 @@
+-- claude code
+
 -- Team a.i HUD (see req/bot_hud.lua): clients simulate bot shooting but never consume the real clip, so they count
 -- bot shots themselves and correct the count on every reload. This is above the client early return on purpose.
 if not StreamHeist.bot_hud then
