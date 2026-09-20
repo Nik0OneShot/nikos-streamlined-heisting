@@ -1,3 +1,42 @@
+-- Team a.i HUD (see req/bot_hud.lua): clients simulate bot shooting but never consume the real clip, so they count
+-- bot shots themselves and correct the count on every reload. This is above the client early return on purpose.
+if not StreamHeist.bot_hud then
+	StreamHeist:require("bot_hud")
+end
+
+if StreamHeist.bot_hud.active and not NewNPCRaycastWeaponBase._sh_bot_hooked then
+	NewNPCRaycastWeaponBase._sh_bot_hooked = true
+
+	local fire_original = NewNPCRaycastWeaponBase.fire
+
+	if fire_original then
+		function NewNPCRaycastWeaponBase:fire(...)
+			local result = fire_original(self, ...)
+
+			-- fire returns nil when no shot was made
+			if result and Network:is_client() then
+				local bot_hud = StreamHeist.bot_hud
+
+				if bot_hud.active then
+					bot_hud:on_client_bot_fire(self)
+				end
+			end
+
+			return result
+		end
+	else
+		StreamHeist:warn("NewNPCRaycastWeaponBase.fire not found, client bot ammo counting is disabled")
+	end
+
+	Hooks:PostHook(NewNPCRaycastWeaponBase, "on_reload", "sh_bot_on_reload", function(self)
+		local bot_hud = StreamHeist.bot_hud
+
+		if bot_hud.active and Network:is_client() then
+			bot_hud:on_client_bot_reloaded(self)
+		end
+	end)
+end
+
 if Network:is_client() then
 	return
 end

@@ -1,3 +1,8 @@
+-- Team a.i HUD (see req/bot_hud.lua)
+if not StreamHeist.bot_hud then
+	StreamHeist:require("bot_hud")
+end
+
 -- Properly sync reload
 function UnitNetworkHandler:reload_weapon_cop(cop, sender)
 	if not self._verify_gamestate(self._gamestate_filter.any_ingame) or not self._verify_character_and_sender(cop, sender) then
@@ -18,5 +23,12 @@ function UnitNetworkHandler:reload_weapon_cop(cop, sender)
 			body_part = 3,
 			type = "reload"
 		})
+	end
+
+	-- Team a.i HUD: the host's mag is empty now, correct the client-side count
+	local bot_hud = StreamHeist.bot_hud
+
+	if bot_hud and bot_hud.active then
+		bot_hud:on_reload_start(cop)
 	end
 end
