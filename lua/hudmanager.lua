@@ -4,6 +4,8 @@ function HUDManager:check_anticipation_voice(...)
 	return self._anticipation_dialogs and check_anticipation_voice_original(self, ...)
 end
 
+-- claude code
+
 -- Team a.i HUD: per-frame tick and network receiver (see req/bot_hud.lua). Thin dispatchers, only installed once.
 if not StreamHeist.bot_hud then
 	StreamHeist:require("bot_hud")
