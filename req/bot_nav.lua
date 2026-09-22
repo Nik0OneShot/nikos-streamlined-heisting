@@ -1,12 +1,17 @@
+-- Where bots may go, and what they may not break on the way.
+-- The game's own path search takes a doorway with a shut door in it for a way (a door that stays shut is a nav obstacle that the mission
+-- script adds, and only the search that walks the last meters knows about it), and a window link for a way that smashes the glass, which
+-- in stealth alerts people and destroys the window. This keeps the routes of the bots, their hiding places and their stashes to the ways
+-- that are open: doorways with nothing in them, doors that are open, windows without glass, ladders and stairs.
 UsefulBots.nav = UsefulBots.nav or {}
 local Nav = UsefulBots.nav
 
-Nav.BAN_TIME = 90 
-Nav.OBSTACLE_MARGIN = 60
-Nav.LINE_MARGIN = 150
-Nav.GLASS_HEIGHTS = { 100, 130, 160, 190, 220 }
+Nav.BAN_TIME = 90 -- seconds a way that failed stays out of the routes (it is back sooner if a door opens or an obstacle goes away)
+Nav.OBSTACLE_MARGIN = 60 -- a doorway this close to an obstacle is shut (cm)
+Nav.LINE_MARGIN = 150 -- a straight line this close to a way that failed is not taken (cm)
+Nav.GLASS_HEIGHTS = { 100, 130, 160, 190, 220 } -- at these heights above the ground a window link is looked at for glass (cm)
 Nav.MAX_ITERATIONS = 1500
-Nav.SELF_CHECKS = 20
+Nav.SELF_CHECKS = 20 -- how often the own search is compared with the game's when it finds nothing
 
 Nav.epoch = Nav.epoch or 0
 Nav._bans = Nav._bans or {}
@@ -26,6 +31,7 @@ function Nav:now()
 	return TimerManager:game():time()
 end
 
+-- a new level: nothing of the last one is left
 function Nav:reset()
 	self.epoch = 0
 	self._bans = {}
@@ -53,7 +59,10 @@ function Nav:reset()
 	self._track_t = nil
 end
 
+-- Something that decides what can be walked through changed (an obstacle, a link, a nav segment). What was learned about failed ways is
+-- not valid anymore: a door that was shut may be open now
 function Nav:changed(what, unit, soft)
+	-- a link that is switched on or off (many levels do that all the time) only changes what can be reached, what failed stays failed
 	if soft then
 		self._reach = nil
 		self.link_epoch = (self.link_epoch or 0) + 1
@@ -70,6 +79,10 @@ function Nav:changed(what, unit, soft)
 		StreamHeist:log("Stealth nav: %s%s (what bots learned about shut ways is forgotten)", what, unit and alive(unit) and (" " .. tostring(unit:name())) or "")
 	end
 end
+
+------------------------------------------------------------------------------------------------------------------------------------
+-- Ways that failed
+------------------------------------------------------------------------------------------------------------------------------------
 
 function Nav:live_bans()
 	local t = self:now()
@@ -114,6 +127,10 @@ local function point_segment_dis(p, a, b)
 
 	return math.sqrt((p.x - x) ^ 2 + (p.y - y) ^ 2)
 end
+
+------------------------------------------------------------------------------------------------------------------------------------
+-- Obstacles: what the mission scripts put in a doorway that stays shut
+------------------------------------------------------------------------------------------------------------------------------------
 
 local function box_of(unit, obj_name)
 	local ok, box = pcall(function()
@@ -187,6 +204,7 @@ function Nav:near_obstacle(pos, margin)
 	end
 end
 
+-- Can a bot go through the doorway at pos? Not if it is shut by an obstacle or if it failed lately
 function Nav:door_ok(pos)
 	if self._verdict_epoch ~= self.epoch or not self._verdicts then
 		self._verdicts = {}
@@ -217,6 +235,7 @@ function Nav:door_ok(pos)
 	return verdict
 end
 
+-- Does a straight line between two points run through a way that is shut?
 function Nav:line_shut(a, b)
 	for _, ban in ipairs(self:live_bans()) do
 		if point_segment_dis(ban.pos, a, b) < self.LINE_MARGIN then
@@ -252,6 +271,12 @@ function Nav:line_shut(a, b)
 	return false
 end
 
+------------------------------------------------------------------------------------------------------------------------------------
+-- The route search: the game's own (segments joined by doors and links), with the ways that are shut left out
+------------------------------------------------------------------------------------------------------------------------------------
+
+-- Returns a path in the form of the game's coarse paths: { { from_seg }, { seg, entry_pos, entry_pos }, ..., { to_seg, to_pos, entry_pos } }
+-- banned: nav segments that are not to be used, plain: ignore the extra rules (only to compare with the game's search)
 function Nav:coarse_path(data, from_seg, to_seg, from_pos, to_pos, banned, plain)
 	local navman = managers.navigation
 	local segs = navman._nav_segments
@@ -363,6 +388,7 @@ function Nav:coarse_path(data, from_seg, to_seg, from_pos, to_pos, banned, plain
 	return nil
 end
 
+-- The own search found no way: does the game's? Then the own search is wrong and it is switched off, better the game's search than none
 function Nav:self_check(data, from_seg, to_seg, from_pos, to_pos)
 	if (self._checks or 0) >= self.SELF_CHECKS then
 		return
@@ -389,6 +415,7 @@ function Nav:self_check(data, from_seg, to_seg, from_pos, to_pos)
 	end
 end
 
+-- Can the bot get to pos over ways it may take?
 function Nav:reachable(data, pos)
 	local navman = managers.navigation
 	local from_seg = data.unit:movement():nav_tracker():nav_segment()
@@ -419,6 +446,10 @@ function Nav:reachable(data, pos)
 
 	return known
 end
+
+------------------------------------------------------------------------------------------------------------------------------------
+-- A leg that fails: where, and what is there
+------------------------------------------------------------------------------------------------------------------------------------
 
 function Nav:probe(pos)
 	local navman = managers.navigation
@@ -454,6 +485,7 @@ function Nav:probe(pos)
 	return #parts > 0 and table.concat(parts, "; ") or "nothing near"
 end
 
+-- A leg to to_pos did not work out: the doorway the bot is at (or the first one on its way) is left out of the routes for a while
 function Nav:leg_failed(data, from_pos, to_pos, why)
 	local navman = managers.navigation
 	local pos = data.m_pos
@@ -484,6 +516,11 @@ function Nav:leg_failed(data, from_pos, to_pos, why)
 	StreamHeist:log("Stealth nav: %s did not get through (%s), at %d %d %d on the way to %d %d %d. %s. Near: %s", UsefulBots.hold:bot_name(data.unit), why, pos.x, pos.y, pos.z, to_pos.x, to_pos.y, to_pos.z, banned and string.format("The doorway at %d %d %d (%.1f m away) is left out for %d s or until a door or obstacle changes", banned.x, banned.y, banned.z, mvec3_dis(banned, pos) / 100, self.BAN_TIME) or "There is no doorway on that leg to leave out", self:probe(pos))
 end
 
+------------------------------------------------------------------------------------------------------------------------------------
+-- Windows: no glass to smash in stealth
+------------------------------------------------------------------------------------------------------------------------------------
+
+-- the access bits of the team AI on a nav link
 function Nav:team_mask()
 	if not self._team_mask then
 		local mask = 0
@@ -498,6 +535,8 @@ function Nav:team_mask()
 	return self._team_mask
 end
 
+-- Is there breakable glass between the two ends of a link? Looked at along several heights, the material of what a ray hits says
+-- what it is (the game uses the same to pick the sound and the decal of a bullet)
 function Nav:link_glass(element)
 	local from, to = element:value("position"), element:nav_link_end_pos()
 
@@ -508,6 +547,9 @@ function Nav:link_glass(element)
 	local a, b = Vector3(), Vector3()
 	local masks = { managers.slot:get_mask("bullet_impact_targets"), managers.slot:get_mask("world_geometry") }
 
+	-- GLASS_HEIGHTS alone is a normal wall window's height range above one flat floor - it missed a rappel down through a roof
+	-- skylight, whose glass sits far above both ends of a link that covers several floors of vertical drop. Heights spanning the
+	-- rise of the link itself are added for one that goes up or down a real distance, on top of the usual wall-window heights
 	local heights = {}
 
 	for _, height in ipairs(self.GLASS_HEIGHTS) do
@@ -541,6 +583,7 @@ function Nav:link_glass(element)
 	end
 end
 
+-- Called just before a link is registered in the navigation: in stealth the team AI loses the access to the ones that would smash glass
 function Nav:on_link_register(element)
 	if self._restoring or not self:no_smash_enabled() then
 		return
@@ -558,6 +601,7 @@ function Nav:on_link_register(element)
 	local access = tonumber(values.SO_access)
 	local mask = self:team_mask()
 
+	-- a link the team AI can not use anyway
 	if not access or bit.band(access, mask) == 0 then
 		return
 	end
@@ -592,6 +636,7 @@ function Nav:on_link_register(element)
 	StreamHeist:log("Stealth nav: the link %s at %d %d %d is closed to the bots in stealth (%s)", action, start_pos.x, start_pos.y, start_pos.z, reason)
 end
 
+-- The links that are open are looked at again: when they registered, the units of the windows may not have been solid yet
 function Nav:recheck_links()
 	if not self:no_smash_enabled() then
 		return
@@ -611,6 +656,7 @@ function Nav:recheck_links()
 			local ok = pcall(function()
 				self:on_link_register(element)
 
+				-- closed just now: registered again, with the access the team AI lost
 				if self._blocked[element] ~= nil and element:nav_link() then
 					self._restoring = true
 					navman:unregister_anim_nav_link(element)
@@ -636,6 +682,7 @@ function Nav:recheck_links()
 	end
 end
 
+-- Looked at again a few seconds after the first link was registered (and once more later)
 function Nav:schedule_recheck()
 	if self._recheck_scheduled or not DelayedCalls then
 		return
@@ -652,6 +699,7 @@ function Nav:schedule_recheck()
 	end
 end
 
+-- Stealth is over, glass is no reason anymore: the links are given back to the team AI
 function Nav:restore_links()
 	if not next(self._blocked) then
 		return
@@ -686,15 +734,25 @@ function Nav:restore_links()
 end
 
 
-Nav.WALL_HEIGHTS = { 30, 100, 170 }
-Nav.THROW_RANGE = 1200
+------------------------------------------------------------------------------------------------------------------------------------
+-- Invisible walls: places humans can not get to
+------------------------------------------------------------------------------------------------------------------------------------
+-- The invisible walls of a level stop players but not the navigation, so the nav mesh goes on behind them and a bot can walk (and leave
+-- a bag) where no human can follow. Slot 15 is in the game's mask for what a player stands on and what the nav graph is built around,
+-- which is what an invisible wall is: every wall that is found is logged, so this can be checked on a map.
+
+Nav.WALL_HEIGHTS = { 30, 100, 170 } -- cm above the ground where a ray looks for a wall
+Nav.THROW_RANGE = 1200 -- how far a bag is thrown into a secure zone from the side of a wall that humans can get to (cm)
 Nav.THROW_SEGMENT_SAMPLES = 4
-Nav.VISITED_MIN = 6
+Nav.VISITED_MIN = 6 -- nav segments players have to have been in before "where a player has been" is what counts
 
 function Nav:walls_enabled()
 	return UsefulBots.settings.stealth_walls ~= false and not self._walls_failed
 end
 
+-- The nav segments players have actually stood in. That is the one thing that is certain about what humans can get to: the invisible
+-- walls of a level are not something that can be found by a ray with any of the masks or ray types I know (the first version looked for
+-- slot 15 and found nothing on the Art Gallery), where players have been is what a level allows them
 function Nav:track_humans(t)
 	if not self:walls_enabled() then
 		return
@@ -735,6 +793,7 @@ function Nav:track_humans(t)
 	end
 end
 
+-- The segments to look in when nothing may be out of reach of the players: nil while too few are known
 function Nav:visited_list()
 	if not self:walls_enabled() then
 		return nil
@@ -759,6 +818,7 @@ function Nav:visited_list()
 	return list
 end
 
+-- The first invisible wall between two points (the hit), or nil
 function Nav:wall_between(a, b)
 	self._wall_mask = self._wall_mask or World:make_slot_mask(15)
 	self._wall_from = self._wall_from or Vector3()
@@ -790,6 +850,7 @@ function Nav:human_positions()
 	return list
 end
 
+-- Can humans go from one nav segment to the next through one of these doors or links? Cached: the walls do not move
 function Nav:edge_open(seg, neighbour, doors)
 	self._edges = self._edges or {}
 
@@ -846,6 +907,7 @@ function Nav:edge_open(seg, neighbour, doors)
 	return open
 end
 
+-- The nav segments humans can get to from where they are
 function Nav:human_segments()
 	local now = self:now()
 
@@ -923,6 +985,7 @@ function Nav:human_segments()
 	return cache
 end
 
+-- Can a human stand at pos? (True if that can not be said)
 function Nav:human_ok(pos)
 	if not self:walls_enabled() then
 		return true
@@ -937,10 +1000,12 @@ function Nav:human_ok(pos)
 			return true
 		end
 
+		-- where a player has been: that is where a human can stand
 		if (self._visited_n or 0) >= self.VISITED_MIN then
 			return self._visited[seg] == true
 		end
 
+		-- too few segments are known: the ways between the nav segments, without a wall in them (which is not much to go on)
 		local cache = self:human_segments()
 
 		if not cache then
@@ -951,6 +1016,7 @@ function Nav:human_ok(pos)
 			return false
 		end
 
+		-- a wall inside the segment a human stands in
 		local anchor = cache.anchors[seg]
 
 		return not (anchor and self:wall_between(anchor, pos))
@@ -967,6 +1033,7 @@ function Nav:human_ok(pos)
 	return result
 end
 
+-- A spot humans can stand at, in throw range of bag_pos: where a bag is thrown into a zone that is beyond a wall. nil if there is none
 function Nav:throw_spot(bag_pos)
 	if not self:walls_enabled() then
 		return nil
@@ -996,6 +1063,7 @@ function Nav:throw_spot(bag_pos)
 		local now = self:now()
 
 		if known then
+			-- a spot that was found is kept as long as humans can still get to it, "none" is looked at again after a while
 			if known.spot and self:human_ok(known.spot) then
 				return known.spot
 			elseif not known.spot and now < known.t + 10 then
@@ -1008,6 +1076,7 @@ function Nav:throw_spot(bag_pos)
 		local best, best_dis
 
 		for seg in pairs(pool) do
+			-- a segment can be big: the ones that are near enough to have a spot in range
 			if segs[seg] and mvector3.distance(segs[seg].pos, bag_pos) < self.THROW_RANGE + 2000 then
 				for i = 0, self.THROW_SEGMENT_SAMPLES do
 					local pos = i == 0 and segs[seg].pos or navman:find_random_position_in_segment(seg)

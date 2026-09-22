@@ -448,7 +448,9 @@ end)
 
 -- Awake bots in stealth are noticed like they normally are again once the heist goes loud (req/bot_stealth.lua)
 Hooks:PostHook(GroupAIStateBase, "set_whisper_mode", "set_whisper_mode_stealth_sh", function (self, enabled)
-	if not enabled then
+	if enabled then
+		UsefulBots.stealth:on_whisper_mode_started()
+	else
 		UsefulBots.stealth:on_whisper_mode_ended()
 	end
 end)

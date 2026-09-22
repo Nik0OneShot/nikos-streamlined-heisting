@@ -1,3 +1,5 @@
+-- A player can hold follow on an awake bag carrier to order a quiet delivery.
+-- Use an observed loot secure point when possible; otherwise leave the bag in cover.
 UsefulBots.bag = UsefulBots.bag or {}
 local Bag = UsefulBots.bag
 
@@ -15,8 +17,11 @@ Bag.ROUTE_GUARD_CLEARANCE = 1200
 Bag.ROUTE_CIV_CLEARANCE = 700
 Bag.ROUTE_CHECK_INTERVAL = 0.5
 
-Bag.STALL_HINT_DELAY = 7
+Bag.STALL_HINT_DELAY = 7 -- how long a carrier has to be stuck (no spot, or no safe route to one) before a hint says so on screen
 
+-- One-shot, on-screen: never spammed while stuck in the same state, only speaks up again once something actually changes (the state
+-- resolves, or a different kind of stall starts). Best-effort, host-side only - see req/bot_interact.lua's supply_hint for the same
+-- caveat about multiplayer
 function Bag:stall_hint(unit, text)
 	local ok, err = pcall(function()
 		managers.hud:show_hint({ text = text, time = 3 })
@@ -29,6 +34,7 @@ function Bag:stall_hint(unit, text)
 	end
 end
 
+-- A body bag: like a delivery, but there is no drop-off, the bag is left in cover (the radius that is looked in is the one of the stash setting)
 function Bag:request_body(unit, carry_unit, requester)
 	local movement = unit:movement()
 
@@ -47,6 +53,7 @@ function Bag:request_body(unit, carry_unit, requester)
 	order.dropoff_range = 0
 	order.body = true
 
+	-- a stash range of nothing: it is left right where the bot is
 	if order.stash_range == 0 then
 		self:drop(unit, order)
 	end
@@ -114,6 +121,8 @@ function Bag:cancel(unit, reason)
 	end
 end
 
+-- A secure zone that is beyond an invisible wall (out of bounds, no human can get there): the bag is thrown into it from a spot humans can get
+-- to, if there is one in throw range. Otherwise the zone is left out (no throw) and the bag is left in cover where humans can find it
 function Bag:human_info(trigger, info)
 	local nav = UsefulBots.nav
 
@@ -136,6 +145,7 @@ function Bag:human_info(trigger, info)
 		end
 	end
 
+	-- nothing to throw from: the delivery is not given up, the bot brings the bag itself
 	if not spot then
 		return info
 	end
@@ -164,6 +174,8 @@ function Bag:secure_point(data, carry_unit, range_meters)
 	local multiplier = type_tweak and type_tweak.throw_distance_multiplier or 1
 	local max_dis_sq = range_meters and range_meters < 101 and (range_meters * 100) ^ 2
 
+	-- Mission-defined secure zones take priority and are available immediately;
+	-- they do not depend on seeing a player throw a bag there first.
 	for trigger in pairs(ElementAreaTrigger.sh_loot_secure_triggers or {}) do
 		local info = trigger:sh_manual_secure_info(carry_unit, data.m_pos)
 		info = info and self:human_info(trigger, info)
@@ -191,6 +203,9 @@ function Bag:secure_point(data, carry_unit, range_meters)
 	return best_trigger, best_info
 end
 
+-- Normal stealth observers contain only unaware guards and civilians. Alerted
+-- guards are maintained separately for hiding and flanking, but a bag carrier
+-- must avoid both groups. De-duplicate units that appear in both caches.
 function Bag:route_observers()
 	local result, seen = {}, {}
 	local function add(obs)
@@ -212,6 +227,9 @@ function Bag:route_observers()
 	return result
 end
 
+-- Find a stash rather than merely a spot that happens to be out of sight now.
+-- Candidates must be away from the pickup point, unseen along the route and at
+-- the destination, and separated from guards/civilians and their near-future paths.
 function Bag:stash_point(data, order)
 	local range_meters = order.stash_range
 	if range_meters == 0 then
@@ -251,6 +269,7 @@ function Bag:stash_point(data, order)
 	end
 
 	local function consider(pos)
+		-- out of bounds, beyond an invisible wall: nobody could pick the bag up again
 		if not nav:human_ok(pos) then
 			walls = walls + 1
 
@@ -275,6 +294,8 @@ function Bag:stash_point(data, order)
 		local civ_dis = 5000
 		for _, obs in ipairs(observers) do
 			if obs.kind ~= "camera" then
+				-- The active walking route gives a better picture of an actual patrol
+				-- than visibility at the guard's present position alone.
 				for _, route_pos in ipairs(obs.motion and obs.motion.route or {}) do
 					local dis = mvector3.distance(route_pos, pos)
 					if obs.kind == "guard" then
@@ -300,6 +321,8 @@ function Bag:stash_point(data, order)
 			return
 		end
 
+		-- Distance from patrols matters most. Moving away from the pickup area is
+		-- useful, but very long trips lose against similarly safe nearby stashes.
 		local score = guard_dis * 2 + civ_dis + math.min(moved, 2000) * 0.5 - travel * 0.15
 		if not best_score or score > best_score then
 			best = mvector3.copy(pos)
@@ -317,6 +340,7 @@ function Bag:stash_point(data, order)
 		end
 	end
 
+	-- mapwide: only where a player has been, not the whole navigation (that goes out of bounds, beyond the walls of the level)
 	if mapwide then
 		local visited = nav:visited_list()
 
@@ -345,6 +369,7 @@ function Bag:stash_point(data, order)
 				local reachable
 
 				if UsefulBots.nav:doors_enabled() then
+					-- from where the bot is, over ways it may take (no shut door, no glass to smash)
 					local ok, result = pcall(UsefulBots.nav.reachable, UsefulBots.nav, data, tracker:position())
 
 					reachable = not ok or result
@@ -374,6 +399,10 @@ function Bag:stash_point(data, order)
 	return best
 end
 
+-- A route point must stay out of observers' view and out of an unobstructed
+-- corridor around guards/civilians. The clearance check deliberately ignores
+-- which way a person currently faces: turning around while the bot is halfway to
+-- the van must not turn a supposedly safe route into a reckless one.
 function Bag:route_point_safe(pos, arrival, observers)
 	local sneak = UsefulBots.sneak
 	observers = observers or self:route_observers()
@@ -436,6 +465,9 @@ local function bag_nav_point_pos(point)
 	end
 end
 
+-- Check the detailed path being prepared or walked, followed by the remaining
+-- coarse route. Detailed points make corners, doors and narrow passages part of
+-- the safety decision instead of testing only room centres.
 function Bag:route_clear(data, target, speed)
 	local objective = data.objective
 	if not objective or not objective.sh_bag_order or not objective.pos or mvector3.distance_sq(objective.pos, target) > 180 ^ 2 then
@@ -493,6 +525,10 @@ function Bag:route_clear(data, target, speed)
 	return true
 end
 
+-- Coarse-path callback used by TeamAILogicTravel. Temporarily rejected route
+-- segments and segments whose centres are watched are left out of the search.
+-- The current and destination segments stay valid so the bot can leave a watched
+-- room and can still reach the ordered secure point.
 function Bag:check_nav_seg_safe(data, nav_seg, target_seg)
 	local order = data.unit:movement()._sh_bag_order
 	if not order then
@@ -518,6 +554,9 @@ function Bag:check_nav_seg_safe(data, nav_seg, target_seg)
 		return false
 	end
 
+	-- The callback does not reveal which neighbour the pathfinder will use to
+	-- enter this segment. Requiring every usable entrance to be safe prevents an
+	-- area with one hidden door from legitimising another exposed door.
 	for _, door_list in pairs(segment.neighbours or {}) do
 		for _, door in ipairs(door_list) do
 			local pos
@@ -537,6 +576,8 @@ function Bag:check_nav_seg_safe(data, nav_seg, target_seg)
 	return true
 end
 
+-- The pathfinder calls this from the engine for every segment it looks at. An error in here must not break the search: the
+-- route is taken as safe then (the bot still checks the route it walks, see Bag:route_clear)
 function Bag:nav_seg_safe(data, nav_seg, target_seg)
 	local success, result = pcall(self.check_nav_seg_safe, self, data, nav_seg, target_seg)
 
@@ -552,6 +593,9 @@ function Bag:nav_seg_safe(data, nav_seg, target_seg)
 	return true
 end
 
+-- Detect physical obstructions that are not represented in the navigation graph
+-- (for example, a closed door at an otherwise valid doorway). If an active walk
+-- makes no meaningful progress, reject its next segment and plan around it.
 function Bag:stalled_segment(data, order)
 	if not data.internal_data.advancing then
 		order.progress_pos, order.progress_t = nil, nil
@@ -591,6 +635,9 @@ function Bag:drop(unit, order)
 			return
 		end
 
+		-- Removing the bag calls TeamAIMovement:set_carrying_bag(nil). Mark this as
+		-- the intended completion so the immediate interruption hook does not cancel
+		-- and log a successful delivery as though somebody took the bag.
 		order.finishing = true
 		CarryData.ub_loot[carry_unit:key()] = nil
 		movement._was_carrying = { unit = carry_unit }
@@ -612,6 +659,8 @@ function Bag:drop(unit, order)
 	self:cancel(unit)
 end
 
+-- What a delivering bot is doing, for the log: when it changes, and every few seconds while it stays the same. A bot that stands still
+-- without saying why is what this is for
 function Bag:note_state(data, order, state, dis, exposed, noticed)
 	if order.state == state and data.t < (order.state_t or 0) + 3 then
 		return
@@ -626,6 +675,8 @@ function Bag:note_state(data, order, state, dis, exposed, noticed)
 	StreamHeist:log((order.tag or "Stealth bag") .. ": %s: %s (%.1f m from the delivery, %s, noticed %d%%, objective: %s, coarse path: %s)", UsefulBots.hold:bot_name(data.unit), state, (dis or 0) / 100, exposed and "seen" or "not seen", (noticed or 0) * 100, kind, coarse and (#coarse .. " segments") or "none")
 end
 
+-- The objective a route goes back to after each leg (and a sprint to a hiding place): the delivery. It is not a "sh_bag_order" one on
+-- purpose, those get the route filter of the game's own path search, and the routes are planned by the bot itself
 function Bag:followup_objective(data, target)
 	return {
 		type = "free",
@@ -637,6 +688,9 @@ function Bag:followup_objective(data, target)
 	}
 end
 
+-- Sprint to a hiding place (the spot the bot left, or the nearest one), it crouches there (see update_routed), the delivery goes on from there
+-- crouch: false/nil sprints there (the usual reason - a hiding place, or the delivery when only sprinting keeps it under the
+-- cutoff), true walks there crouched (the delivery, when crouching alone already keeps it under the cutoff, req/bot_sneak.lua)
 function Bag:evade(data, order, spot, target, crouch)
 	local sneak = UsefulBots.sneak
 
@@ -657,6 +711,12 @@ function Bag:evade(data, order, spot, target, crouch)
 	})
 end
 
+-- The delivery over planned routes, the way a bot that follows gets to a player (see Sneak:try_routes): up to 5 routes to the drop-off,
+-- the safest one is taken if it is safe enough (running wherever running is not going to be noticed), it is given up as soon as the bot
+-- collects more than the plan said, and then the bot sprints back to the spot it left and crouches there. If no route is safe enough it stays hidden and looks
+-- again in a moment.
+-- Returns true if this update is dealt with, false if the game should walk the leg of a route, nil if this way does not work (the
+-- delivery then goes on the old way, see Bag:update)
 function Bag:update_routed(data, order, target, dis, exposed)
 	local unit = data.unit
 	local sneak = UsefulBots.sneak
@@ -664,6 +724,8 @@ function Bag:update_routed(data, order, target, dis, exposed)
 	local name = UsefulBots.hold:bot_name(unit)
 	local objective = data.objective
 
+	-- whichever stall (if any) is actually reached below sets this back before the tick is over; reaching neither leaves it clear,
+	-- so a stall that resolves and later comes back is treated as a fresh episode, free to hint again once it has waited its own turn
 	local was_stalled = order.stall_kind
 
 	order.stall_kind = nil
@@ -672,6 +734,7 @@ function Bag:update_routed(data, order, target, dis, exposed)
 		return nil
 	end
 
+	-- this asks every observer around, ten times a second is enough
 	if not order.noticed_t or data.t >= order.noticed_t then
 		order.noticed_t = data.t + 0.1
 		order.noticed = sneak:notice_progress(unit)
@@ -679,6 +742,8 @@ function Bag:update_routed(data, order, target, dis, exposed)
 
 	local noticed = order.noticed
 
+	-- A route is given up as soon as the bot has collected more than the plan said (plus a small tolerance), if it is in view or what it
+	-- collected is going up: not when it is only fading away in cover
 	local rising = order.previous_noticed and noticed > order.previous_noticed + 0.005
 
 	order.previous_noticed = noticed
@@ -705,6 +770,7 @@ function Bag:update_routed(data, order, target, dis, exposed)
 		return self:followup_objective(data, target)
 	end
 
+	-- 1. a leg of a route is walked: only keep an eye on what it collects
 	if objective and objective.sh_route then
 		sneak:watch_route(data)
 
@@ -714,6 +780,7 @@ function Bag:update_routed(data, order, target, dis, exposed)
 			return false
 		end
 
+		-- the route was given up: back to the spot the bot left
 		objective = data.objective
 
 		if st.retreat_to then
@@ -722,6 +789,7 @@ function Bag:update_routed(data, order, target, dis, exposed)
 		end
 	end
 
+	-- 2. a sprint to a hiding place
 	if objective and objective.sh_evade then
 		self:note_state(data, order, "sprinting to a hiding place", dis, exposed, noticed)
 
@@ -740,6 +808,7 @@ function Bag:update_routed(data, order, target, dis, exposed)
 		end
 	end
 
+	-- 3. between two legs of a route: the next leg, or the end of the route
 	if st.route then
 		local reason
 
@@ -758,6 +827,7 @@ function Bag:update_routed(data, order, target, dis, exposed)
 				return true
 			end
 
+			-- the route is over
 			dis = mvector3.distance(data.m_pos, target)
 
 			if dis < 180 and not exposed then
@@ -766,10 +836,15 @@ function Bag:update_routed(data, order, target, dis, exposed)
 		end
 	end
 
+	-- clear of being noticed: a fresh episode, free to push on to the delivery again if it comes to that
 	if not exposed then
 		st.pushed = nil
 	end
 
+	-- 4. seen or noticed: out of view. The spot the bot left if it gave up a route (it was hidden there), otherwise a hiding place on the
+	-- way to the delivery. On to the delivery itself instead, first, by whatever route (not a straight line - that ignores walls, which
+	-- is what went wrong the first time this was tried) stays under the cutoff, if one exists - tried once per episode (st.pushed), not
+	-- on every single re-check straight after the last attempt fell through, which is what thrashed a bot in place and got it caught
 	if exposed and (not order.next_hide_t or data.t >= order.next_hide_t) then
 		order.next_hide_t = data.t + 1
 
@@ -789,9 +864,12 @@ function Bag:update_routed(data, order, target, dis, exposed)
 		end
 
 		if not spot then
+			-- A bot that is hidden where it is stays there, whatever the observers collected on it a moment ago is fading. It is only
+			-- made to move on if the game says it is being noticed where the model sees nobody looking at it
 			local force = noticed > 0.05 and not sneak:exposed(data.m_pos, true)
 
 			if force then
+				-- this spot is not as hidden as it seems, it is not used again for a while (the bot hopped between spots 2.5 m apart)
 				st.bad_spots = st.bad_spots or {}
 				table.insert(st.bad_spots, mvector3.copy(data.m_pos))
 
@@ -811,6 +889,10 @@ function Bag:update_routed(data, order, target, dis, exposed)
 			return true
 		end
 
+		-- Nowhere to hide, and already exposed (that is what this whole block being reached means): on to the delivery by the route
+		-- that is noticed the least, that at least gets the bag there. This used to also require noticed > 5%, which a carrier that
+		-- had only just come into view (still building up) or that dipped briefly under it could fail to clear, leaving it standing
+		-- in full view with nothing left to try - the stand-and-do-nothing seen in the log was exactly this
 		if not spot then
 			st.plan_t = data.t + sneak.PLAN_COOLDOWN
 
@@ -824,6 +906,7 @@ function Bag:update_routed(data, order, target, dis, exposed)
 		end
 	end
 
+	-- 5. waiting in a hiding place
 	if order.wait_until and data.t < order.wait_until then
 		sneak:set_pose(data, true)
 		sneak:sync_attention(data)
@@ -833,6 +916,7 @@ function Bag:update_routed(data, order, target, dis, exposed)
 		return true
 	end
 
+	-- 6. the next route
 	if not st.plan_t or data.t >= st.plan_t then
 		st.plan_t = data.t + sneak.PLAN_COOLDOWN
 		st.blocked_t = st.blocked_t or data.t
@@ -853,6 +937,8 @@ function Bag:update_routed(data, order, target, dis, exposed)
 				self:stall_hint(unit, "NO PLACE TO STASH BAG - MAP GEOMETRY IN THE WAY")
 			end
 
+			-- No way it may take: a shut door, or nothing that does not smash glass. The bag is left in cover instead, and the drop-off is
+			-- tried again when a door opens or an obstacle goes away
 			if order.trigger and UsefulBots.nav:doors_enabled() then
 				order.unreachable_epoch = UsefulBots.nav.epoch
 				order.trigger, order.info, order.target = nil, nil, nil
@@ -871,6 +957,7 @@ function Bag:update_routed(data, order, target, dis, exposed)
 		end
 	end
 
+	-- 7. no route is safe enough: it stays hidden, or goes back to the spot it left, and looks again in a moment
 	if st.last_hide and mvector3.distance(data.m_pos, st.last_hide) > 300 and (not st.retreat_t or data.t > st.retreat_t) then
 		st.retreat_t = data.t + 3
 
@@ -925,6 +1012,9 @@ function Bag:update(data)
 		return false
 	end
 
+	-- Bag delivery must yield to the established stealth-defense controller. It
+	-- handles domination, close melee, flanking and charging police callers, then
+	-- releases its temporary objective so this delivery can continue afterwards.
 	local defense_changed = UsefulBots.melee:update(data)
 	local defense_objective = data.objective
 	if defense_changed then
@@ -940,9 +1030,15 @@ function Bag:update(data)
 		movement._sh_sneak = { kind = "bag" }
 	end
 
+	-- A secure point always wins over the cover fallback, including one that became
+	-- known after this order started or while the bot was already walking to cover.
+	-- The search walks every drop-off and asks the navigation for a standing spot for each, twice a second is enough. The info
+	-- of a mission drop-off is a new table every time, so it is compared by where it is and not by identity (that would have
+	-- reset the target, the detour and the wait, and logged this, on every single update)
 	if not order.next_secure_t or data.t >= order.next_secure_t then
 		order.next_secure_t = data.t + 0.5
 
+		-- a drop-off that no way leads to (a shut door) is left alone until something changes (a door opens)
 		local secure_trigger, secure_info
 
 		if order.unreachable_epoch ~= UsefulBots.nav.epoch then
@@ -968,6 +1064,7 @@ function Bag:update(data)
 		order.next_stash_search_t = data.t + 2
 		order.target = self:stash_point(data, order)
 		if not order.target then
+			-- Keeping hold of the bag is safer than declaring the current room a stash.
 			if not order.no_stash_logged then
 				order.no_stash_logged = true
 				StreamHeist:log("Stealth bag: %s found no stash away from patrols and waits", UsefulBots.hold:bot_name(unit))
@@ -994,6 +1091,7 @@ function Bag:update(data)
 	local target = order.detour or order.target
 	local dis = mvector3.distance(data.m_pos, target)
 
+	-- these cast rays at everybody around: a few times a second is enough
 	if not order.check_t or data.t >= order.check_t then
 		order.check_t = data.t + 0.2
 		order.exposed = sneak:exposed(data.m_pos, true) or sneak:notice_progress(unit) > 0.01
@@ -1012,6 +1110,7 @@ function Bag:update(data)
 		end
 	end
 
+	-- Routes planned by the bot itself (as a following bot does). What it can not do, the old way below does
 	if UsefulBots.settings.stealth_routes and not sneak._routes_failed then
 		local routed = sneak:safe_route("bag delivery", function(_, ...)
 			return self:update_routed(...)
@@ -1022,6 +1121,7 @@ function Bag:update(data)
 		end
 	end
 
+	-- A dash goes on for as long as it was meant to, it is not decided again every frame
 	local dashing = order.dash_until and data.t < order.dash_until
 	local walking_on = order.walk_ok_until and data.t < order.walk_ok_until
 
@@ -1033,6 +1133,9 @@ function Bag:update(data)
 		if searching then
 			order.next_hide_t = data.t + 1
 
+			-- The search a following bot uses when it is seen: a spot to run to, one on the way to the delivery if there is one.
+			-- (It asked for a spot it could crouch walk to unseen before, that finds nothing in a room full of guards, and the
+			-- bot stood still in view.)
 			spot = sneak:find_hidden_spot(data, false, true, nil, target)
 		end
 
@@ -1042,6 +1145,7 @@ function Bag:update(data)
 			target = spot
 			dis = mvector3.distance(data.m_pos, target)
 
+			-- being noticed already: it runs
 			if noticed > 0.05 then
 				order.dash_until = data.t + dis / sneak:run_speed(data) + 0.5
 				dashing = true
@@ -1049,6 +1153,8 @@ function Bag:update(data)
 
 			StreamHeist:log("Stealth bag: %s is seen and goes to a hidden spot %.1f m away%s", UsefulBots.hold:bot_name(unit), dis / 100, dashing and " at a run, it is being noticed" or "")
 		elseif searching then
+			-- Nowhere to hide. Standing still in view is the worst it can do: it walks on if the observers are too slow to notice
+			-- it, or dashes as far as that goes safely, and takes more risk the longer it has been held up
 			order.blocked_t = order.blocked_t or data.t
 
 			local waited = data.t - order.blocked_t
@@ -1063,6 +1169,7 @@ function Bag:update(data)
 				order.blocked_t = nil
 				dashing = true
 			elseif noticed > 0.05 then
+				-- being noticed anyway: on to the delivery, that at least gets the bag there
 				order.dash_until = data.t + 2
 				dashing = true
 
@@ -1128,6 +1235,8 @@ function Bag:update(data)
 		else
 			order.route_reject_since = order.route_reject_since or data.t
 
+			-- A rejected route is looked around for, but not for ever: after a while the bot goes if it can get through (walking, or
+			-- a dash) and it takes more risk the longer it has been held up
 			local waited = data.t - order.route_reject_since - 6
 
 			if waited > 0 and not dashing then
@@ -1179,6 +1288,7 @@ function Bag:update(data)
 	sneak:hold_still(data, false)
 	local objective = data.objective
 	if not objective or not objective.sh_bag_order or mvector3.distance_sq(objective.pos, target) > 180 ^ 2 then
+		-- a delivery objective that has to be set again and again is one the game keeps dropping (no path through the segments the filter allows)
 		order.objective_sets = (order.objective_sets or 0) + 1
 
 		if order.objective_sets >= 3 and (not order.set_log_t or data.t > order.set_log_t) then

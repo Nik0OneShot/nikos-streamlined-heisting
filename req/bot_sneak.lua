@@ -1,39 +1,65 @@
+-- Stealth behavior of awake bots (stage 2)
+--
+-- Marking: awake bots in stealth mark what a player could mark, following the same delay as the marking of Useful Bots
+-- (16 seconds per bot): unaware guards (quiet voice line) and cameras. Marking of alerted specials is in teamailogicbase.lua.
+--
+-- Stealth wait: an awake bot that was told to wait (tap) in stealth does not use the cover and patrol mode of the loud
+-- heist. It has a "sixth sense": it knows where every unaware guard, unaware civilian and camera is, where they look, and
+-- uses the same rules the game uses to decide if they would notice a bot with a mask on (range, view cone, line of
+-- sight, standing or crouching). With that it
+--   - patrols a perimeter around the alerted civilians of its room (setting stealth_civ_radius) so that it can keep them
+--     down, as long as there are any
+--   - hides at the nearest spot nobody can see and crouches there otherwise, moving only to avoid detection
+--   - hides when an unaware guard gets close, even if civilians need it
+--   - waits when it can not move without being seen and lets the detection of the observers go down, and sprints to the
+--     nearest hidden spot if it is seen already
+-- Anything unexpected switches all of this off until the next restart, see Sneak:safe().
+--
+-- State on TeamAIMovement: _sh_sneak (table), _sh_hold_still (blocks walking, see teamaimovement.lua)
+
 UsefulBots.sneak = UsefulBots.sneak or {}
 
 local Sneak = UsefulBots.sneak
 
-Sneak.OBSERVER_RANGE = 4000
-Sneak.GUARD_NEAR = 1200
-Sneak.GUARD_FAR = 2500
-Sneak.CROUCH_RANGE = 2500
-Sneak.SAMPLES = 24
-Sneak.SETTLE_T = 3
-Sneak.DASH_STEP = 0.1
-Sneak.DASH_TAIL = 1
-Sneak.DASH_LIMIT = 0.5
-Sneak.WALK_LIMIT = 0.25
-Sneak.HOP_STEPS = { 1800, 1200, 800, 500 }
-Sneak.PATIENCE_RATE = 0.04
-Sneak.PATIENCE_MAX = 0.25
-Sneak.LIMIT_MAX = 0.85
-Sneak.PLAN_ROUTES = 5
-Sneak.PLAN_STEP = 0.25
-Sneak.PLAN_HORIZON = 3000
-Sneak.PLAN_COOLDOWN = 2.5
-Sneak.ROUTE_LIMIT = 0.35
-Sneak.NOTICE_CUTOFF = 0.35
-Sneak.ROUTE_TOLERANCE = 0.12
-Sneak.BAG_ROUTE_TOLERANCE = 0.03
-Sneak.SPRINT_LIMIT = 0.05
-Sneak.ROUTE_HEAD_MARGIN = 15
-Sneak.ROUTE_START_DELAY = 1.1
-Sneak.ROUTE_STALL_TIME = 3.5
-Sneak.ROUTE_TIME_MARGIN = { -1, 1.5 }
-Sneak.PREDICT_MAX = 12
-Sneak.LOOKAHEAD_T = 1
-Sneak.HIDE_MIN_T = 3
-Sneak.HIDE_ALERT_DIS = 2500
-Sneak.HIDE_ROUTE = 1500
+Sneak.OBSERVER_RANGE = 4000 -- observers further away are ignored
+Sneak.GUARD_NEAR = 1200 -- a guard this close makes a bot hide whatever happens
+Sneak.GUARD_FAR = 2500 -- a guard this close makes a bot hide if it could see the bot standing
+Sneak.CROUCH_RANGE = 2500 -- bots crouch when an observer is this close
+Sneak.SAMPLES = 24 -- positions tried when looking for a hidden spot
+Sneak.SETTLE_T = 3 -- seconds a bot stays in a mode before it switches to the other one (guards excluded)
+Sneak.DASH_STEP = 0.1 -- seconds per step of the simulation of a dash
+Sneak.DASH_TAIL = 1 -- seconds the bot has to survive at the destination
+Sneak.DASH_LIMIT = 0.5 -- default of the setting: a dash is only safe if nobody gets further than this with noticing
+Sneak.WALK_LIMIT = 0.25 -- a bot walks on through what watches it if nobody gets further than this while it does (walking is slow)
+Sneak.HOP_STEPS = { 1800, 1200, 800, 500 } -- how far a dash goes if the whole way is too much (cm)
+Sneak.PATIENCE_RATE = 0.04 -- the limit of a bot that is held up goes up by this per second that it waits...
+Sneak.PATIENCE_MAX = 0.25 -- ...by this much at most
+Sneak.LIMIT_MAX = 0.85 -- and never higher than this: 1 is being noticed, and guards look around
+Sneak.PLAN_ROUTES = 5 -- how many routes a bot looks at when the way is blocked
+Sneak.PLAN_STEP = 0.25 -- seconds per step of the model when routes are played through
+Sneak.PLAN_HORIZON = 3000 -- only this much of a route is planned (cm), what comes after is planned when the bot is there
+Sneak.PLAN_COOLDOWN = 2.5 -- seconds between two plans of a bot
+Sneak.ROUTE_LIMIT = 0.35 -- a route is only taken if it is predicted to be noticed at this much at most (whatever the setting says)
+Sneak.NOTICE_CUTOFF = 0.35 -- once a bot is already being noticed: a route on towards where it was going is still taken over hiding away from
+-- it, if try_routes (exact = true, so this is used as the ceiling as it is) finds one predicted to stay under this much. Tried once
+-- per episode - if that route is then given up (route.pushed, see abort_route), it is not tried again until the bot is not being
+-- noticed at all; a route that never got found in the first place (nothing committed to, nothing failed) is retried every second,
+-- same as any other reactive check
+Sneak.ROUTE_TOLERANCE = 0.12 -- a route is given up as soon as the bot has collected this much more than the plan said
+Sneak.BAG_ROUTE_TOLERANCE = 0.03 -- a bag carrier gives up sooner: a dash the plan accepted can finish, more than that is a reason to get out of view
+Sneak.SPRINT_LIMIT = 0.05 -- a bag carrier runs a leg if nobody is predicted to notice it (this much or less), otherwise it crouches where that is clearly safer
+Sneak.ROUTE_HEAD_MARGIN = 15 -- the plan looks at a bot this much taller (cm): low cover that hides it only just is not counted on
+Sneak.ROUTE_START_DELAY = 1.1 -- seconds a bot takes to get going on a route (standing up, the path search): measured, a leg of 0.8 s took 1.9 s
+Sneak.ROUTE_STALL_TIME = 3.5 -- a bot that does not get on for this long on a leg is stuck
+Sneak.ROUTE_TIME_MARGIN = { -1, 1.5 } -- and at walking observers this many seconds before and after where they are predicted
+Sneak.PREDICT_MAX = 12 -- seconds a moving observer is predicted ahead at most (along the route it walks, no further)
+Sneak.LOOKAHEAD_T = 1 -- a bot also counts as exposed if it would be seen in this many seconds
+Sneak.HIDE_MIN_T = 3 -- seconds a bot that hid stays in its hiding place at least
+Sneak.HIDE_ALERT_DIS = 2500 -- it does not leave while an alerted guard is this close
+Sneak.HIDE_ROUTE = 1500 -- how much of the way to the player is checked before it leaves
+-- Head height above the feet of a bot. Guards, civilians and cameras test the head bone of a bot (CopMovement:m_head_pos), not
+-- the player camera heights (145 / 75) that are only used for human players. These are the values used until a bot was
+-- measured (Sneak:measure_head), kept on the high side: a head that is too low makes low cover look better than it is
 Sneak.HEAD_STAND = 160
 Sneak.HEAD_CROUCH = 110
 
@@ -42,6 +68,9 @@ local mvec3_dis_sq = mvector3.distance_sq
 local tmp_vec1 = Vector3()
 local tmp_vec2 = Vector3()
 local tmp_vec3 = Vector3()
+
+
+-- Safety net for untested code, an error disables the behavior instead of breaking the bots
 
 function Sneak:safe(name, func, ...)
 	if self._failed then
@@ -61,6 +90,9 @@ end
 function Sneak:bot_name(unit)
 	return UsefulBots.hold:bot_name(unit)
 end
+
+
+-- When does it apply
 
 function Sneak:active_for(unit)
 	if self._failed or not UsefulBots.settings.stealth_wait then
@@ -84,6 +116,9 @@ function Sneak:active_for(unit)
 	return not UsefulBots.stealth:is_loud_bound()
 end
 
+
+-- Observers: everything that could notice a bot and has not done so yet
+
 function Sneak:detection_of(unit)
 	local brain = unit:brain()
 	local logic_data = brain and brain._logic_data
@@ -102,6 +137,11 @@ function Sneak:detection_of(unit)
 	return detection and detection.dis_max and detection or nil
 end
 
+-- Moving observers: a walking guard (or civilian) is predicted along the route of its walk action, so that the checks
+-- look at where it will be when the bot gets there instead of where it is now. The walk action keeps its whole path,
+-- the part that is left is found by the distance of the observer to the segments of the path. Standing observers
+-- and cameras are taken as they are.
+
 local pred = {}
 local pred_pos = Vector3()
 local pred_fwd = Vector3()
@@ -115,6 +155,7 @@ local function segment_dis_sq(p, a, b)
 	return dx * dx + dy * dy
 end
 
+-- nil if the unit does not walk, otherwise the route it still has to walk and its speed
 function Sneak:motion_of(unit)
 	local movement = unit:movement()
 	local walk = movement._active_actions and movement._active_actions[2]
@@ -156,12 +197,14 @@ function Sneak:motion_of(unit)
 
 	local speed = walk._cur_vel
 	if not speed or speed < 20 then
+		-- just started walking
 		speed = 150
 	end
 
 	return { route = route, speed = speed }
 end
 
+-- Where the observer is (its head) and where it looks after t seconds
 function Sneak:position_at(motion, t, out_pos, out_fwd, head_off)
 	local route = motion.route
 	local dis = motion.speed * t
@@ -189,6 +232,7 @@ function Sneak:position_at(motion, t, out_pos, out_fwd, head_off)
 	end
 end
 
+-- The observer as it is t seconds from now (the same table is reused, use it right away)
 function Sneak:predict(obs, t)
 	if not obs.motion or t <= 0 then
 		return obs
@@ -202,6 +246,8 @@ function Sneak:predict(obs, t)
 	return pred
 end
 
+-- Alerted guards are no observers (they know already), but a bot that sneaks up on one has to stay out of their view. The
+-- entry of a guard in any state, same fields as the ones of observers()
 function Sneak:guard_observer(unit)
 	local detection = self:detection_of(unit)
 	if not detection then
@@ -221,6 +267,7 @@ function Sneak:guard_observer(unit)
 	}
 end
 
+-- Runs func with these observers counted on top of the normal ones, returns what it returns
 function Sneak:with_extra_observers(extra, func)
 	local list = {}
 
@@ -245,6 +292,9 @@ function Sneak:with_extra_observers(extra, func)
 	return result
 end
 
+-- Why a camera does not watch right now, nil if it does. When the game switches the detection of a camera off (it is destroyed, the
+-- mission disabled it, the operator is down, it sounds its alarm) it clears the fields that are checked here. A camera that is
+-- looped (a tape loop) or jammed by an ECM keeps them, but it does not detect anything while that lasts
 function Sneak:camera_off_reason(unit, base, ecm)
 	if not base or base.destroyed and base:destroyed() then
 		return "destroyed"
@@ -271,7 +321,9 @@ function Sneak:camera_off_reason(unit, base, ecm)
 	end
 end
 
+-- Say when a camera that was watching stops (and when it starts again): the bots ignore it from then on
 function Sneak:note_camera(unit, off)
+	-- the states belong to the level: the navigation manager is a new one in every heist
 	if self._cam_nav ~= managers.navigation then
 		self._cam_nav = managers.navigation
 		self._cam_state = {}
@@ -293,6 +345,8 @@ function Sneak:note_camera(unit, off)
 	end
 end
 
+-- The range a camera has been seen to sweep over (in degrees, relative to where it was first seen looking): the game turns cameras with
+-- an animation the model can not read, so it is learned from where they look over time
 function Sneak:camera_sweep(unit, fwd)
 	self._sweeps = self._sweeps or {}
 
@@ -313,6 +367,41 @@ function Sneak:camera_sweep(unit, fwd)
 	return sweep
 end
 
+Sneak.PLAYER_HANDLING_RADIUS = 800 -- a player this close to an already-alerted guard or civilian (calling the police, or about to
+-- fire) is assumed to already be dealing with it - see its use in observers() below, and player_handling()
+
+-- Is a player already dealing with this alerted guard or civilian? Only changes what the route planner is willing to path
+-- through - never the bot's own real detection risk if it actually walks in there, that stays exactly as it always was
+function Sneak:player_handling(unit, kind)
+	local alerted
+
+	if kind == "guard" then
+		local info = UsefulBots.melee:guard_state(unit)
+
+		alerted = info and (info.calling or info.about_to_fire)
+	elseif kind == "civilian" then
+		local brain = unit:brain()
+		local logic_data = brain and brain._logic_data
+		local internal_data = logic_data and logic_data.internal_data
+
+		alerted = logic_data and logic_data.name == "flee" and internal_data and internal_data.calling_the_police
+	end
+
+	if not alerted then
+		return false
+	end
+
+	local pos = unit:movement():m_pos()
+
+	for _, player in ipairs(UsefulBots.interact:humans()) do
+		if mvec3_dis(player:movement():m_pos(), pos) <= self.PLAYER_HANDLING_RADIUS then
+			return true
+		end
+	end
+
+	return false
+end
+
 function Sneak:observers()
 	if self._obs_override then
 		return self._obs_override
@@ -320,6 +409,8 @@ function Sneak:observers()
 
 	local t = TimerManager:game():time()
 	if self._obs and t < self._obs_t + 0.25 then
+		-- a civilian or guard can be removed from the game inside these 0.25 s (a civilian that escapes, a body that is bagged): the list is
+		-- built again then, and never handed out with a unit in it that is gone
 		local stale
 
 		for _, obs in ipairs(self._obs) do
@@ -340,7 +431,7 @@ function Sneak:observers()
 	for _, u_data in pairs(managers.enemy:all_enemies()) do
 		local unit = u_data.unit
 
-		if alive(unit) and unit:movement():cool() then
+		if alive(unit) and unit:movement():cool() and not self:player_handling(unit, "guard") then
 			local damage_ext = unit:character_damage()
 			local detection = (not damage_ext or not damage_ext:dead()) and self:detection_of(unit)
 
@@ -361,7 +452,7 @@ function Sneak:observers()
 	for _, u_data in pairs(managers.enemy:all_civilians()) do
 		local unit = u_data.unit
 
-		if alive(unit) and unit:movement():cool() and not unit:anim_data().hands_tied then
+		if alive(unit) and unit:movement():cool() and not unit:anim_data().hands_tied and not self:player_handling(unit, "civilian") then
 			local damage_ext = unit:character_damage()
 			local detection = (not damage_ext or not damage_ext:dead()) and self:detection_of(unit)
 
@@ -407,6 +498,9 @@ function Sneak:observers()
 	return list
 end
 
+-- How fast an observer notices a bot with a mask on that stands (or crouches) at pos: nil if it can not notice it there,
+-- math.huge if it does at once, otherwise progress per second (1 = noticed). Same rules and numbers as the game uses:
+-- CopLogicBase._upd_attention_obj_detection for guards and civilians, SecurityCamera._upd_detect_attention_objects for cameras.
 function Sneak:notice_rate(obs, pos, crouched)
 	mvector3.set(tmp_vec1, pos)
 	mvector3.set_z(tmp_vec1, pos.z + self:head_height(crouched))
@@ -441,6 +535,8 @@ function Sneak:notice_rate(obs, pos, crouched)
 			angle = mvector3.angle(obs.fwd, tmp_vec2)
 
 			if angle >= obs.cone * 0.5 then
+				-- It does not look at the bot now. If it sweeps over the place where the bot is, the bot is seen for the part of the time
+				-- that it does (what a camera collects on average)
 				local sweep = obs.sweep
 				local width = sweep and sweep.max - sweep.min or 0
 
@@ -529,6 +625,8 @@ function Sneak:delay_to_rate(delay, mix, settings)
 	return seconds > 0 and 1 / seconds or math.huge
 end
 
+-- Would this observer notice a bot with a mask on at pos?
+-- Is the progress of the observers going up (they see the bot right now) and not down (they forget it)
 function Sneak:notice_rising(st, noticed, t)
 	local rising = st.prev_noticed and t - st.prev_noticed_t < 1 and noticed > st.prev_noticed + 0.02
 
@@ -538,6 +636,7 @@ function Sneak:notice_rising(st, noticed, t)
 	return rising and true or false
 end
 
+-- The observer with the highest progress on the unit: observer, progress
 function Sneak:notice_source(unit)
 	local key = unit:key()
 	local best, best_obs = 0
@@ -560,6 +659,9 @@ function Sneak:head_height(crouched)
 	return (measured or (crouched and self.HEAD_CROUCH or self.HEAD_STAND)) + (self._head_margin or 0)
 end
 
+-- Measure the real head height of a bot while it stands or kneels, a bit smoothed
+-- Measure the real head height of a bot while it stands or kneels, a bit smoothed. Bots differ in height: every bot keeps its
+-- own value and the tallest one is used (a taller head is seen over more, so that is the safe side)
 function Sneak:measure_head(unit)
 	local movement = unit:movement()
 	local anim_data = unit:anim_data()
@@ -610,6 +712,7 @@ function Sneak:sees(obs, pos, crouched)
 	return self:notice_rate(obs, pos, crouched) ~= nil
 end
 
+-- How fast the progress of an observer goes down again while it does not see the bot
 function Sneak:decay_rate(obs)
 	if obs.kind == "camera" then
 		return obs.delay[2] > 0 and 1 / obs.delay[2] or 1
@@ -618,6 +721,8 @@ function Sneak:decay_rate(obs)
 	return 0.125
 end
 
+-- How far an observer is with noticing the bot right now (0 to 1), read from its own detection data
+-- How far a camera is with noticing the unit, according to the camera itself (1 = identified)
 function Sneak:camera_progress(obs, key)
 	local base = alive(obs.unit) and obs.unit:base()
 	local info = base and base._detected_attention_objects and base._detected_attention_objects[key]
@@ -629,11 +734,13 @@ function Sneak:camera_progress(obs, key)
 	return info.identified and 1 or info.notice_progress or 0
 end
 
+-- How far an observer is with noticing the unit, according to its own detection data (1 = identified)
 function Sneak:observer_progress(obs, key)
 	if obs.kind == "camera" then
 		return self:camera_progress(obs, key)
 	end
 
+	-- (a destroyed unit is not answered with a Lua error, this crashes the game: the crash of the jewelry store was exactly this line)
 	if not alive(obs.unit) then
 		return 0
 	end
@@ -664,6 +771,13 @@ function Sneak:run_speed(data)
 	return speed or 450
 end
 
+-- Observers need a moment to notice a bot. Can the bot run to "to" and be crouching there before anybody is done noticing it?
+-- The run is simulated in small steps with the numbers of the game, starting from what the observers already noticed, and
+-- ends with a moment in the crouch at the destination. Guards can look around, so the limit is well below 1.
+-- Lets the bot move from where it is to `to` in the model (steps of 0.1 s, at `speed`, crouched all the way or only when it got
+-- there) and stand crouched there for `tail` seconds. Does anybody get further than `limit` with noticing it? Returns true if not.
+-- If so: false, how far, and the observer that got there (that is what the log says). Civilians, cameras and guards are all
+-- observers here, each with its own detection delay, range and view angle
 function Sneak:simulate_move(data, to, speed, crouch_moving, tail, limit)
 	local observers = self:observers()
 	local key = data.unit:key()
@@ -716,6 +830,7 @@ function Sneak:simulate_move(data, to, speed, crouch_moving, tail, limit)
 	return true, peak, peak_obs
 end
 
+-- A dash (running, standing) to `to`, and a second at the end of it. limit: the setting unless given
 function Sneak:dash_safe(data, to, force, limit)
 	if not force and not UsefulBots.settings.stealth_dash then
 		return false
@@ -724,6 +839,7 @@ function Sneak:dash_safe(data, to, force, limit)
 	return self:simulate_move(data, to, self:run_speed(data), false, self.DASH_TAIL, limit or UsefulBots.settings.stealth_dash_limit or self.DASH_LIMIT)
 end
 
+-- Walking (crouched) to `to`: only through the view of observers that are slow enough for it not to matter
 function Sneak:walk_safe(data, to, force, limit)
 	if not force and not UsefulBots.settings.stealth_dash then
 		return false
@@ -732,6 +848,9 @@ function Sneak:walk_safe(data, to, force, limit)
 	return self:simulate_move(data, to, self:walk_speed(data, true), true, 0, limit or self.WALK_LIMIT)
 end
 
+-- Is there a way on towards the target through what watches the bot? Either walking on (the observers are slow) or a dash, and if the
+-- whole way is too much for one, as far as one safely goes: it does not have to be all of it, what comes after is decided when the bot
+-- is there. Returns "walk", or "dash" and how far it goes (cm). If there is none: nil, and what came closest (for the log)
 function Sneak:safe_hop(data, target, limit, max_dis, force)
 	if not force and not UsefulBots.settings.stealth_dash then
 		return nil
@@ -782,6 +901,8 @@ function Sneak:safe_hop(data, target, limit, max_dis, force)
 	return nil, { peak = closest_peak, obs = closest_obs, dis = closest_d }
 end
 
+
+-- The first observer that would notice a bot at pos, t seconds from now (moving observers are predicted)
 function Sneak:exposed(pos, crouched, t)
 	for _, obs in ipairs(self:observers()) do
 		if self:sees(self:predict(obs, t or 0), pos, crouched) then
@@ -790,6 +911,7 @@ function Sneak:exposed(pos, crouched, t)
 	end
 end
 
+-- Nobody notices the bot on the way from one spot to the other at the given speed
 function Sneak:path_clear(from, to, crouched, speed)
 	local dis = mvec3_dis(from, to)
 	local steps = math.floor(dis / 300)
@@ -818,6 +940,7 @@ function Sneak:observer_near(pos, dis)
 	return false
 end
 
+-- How far the observers are with noticing this bot (0 to 1), read from their own detection data
 function Sneak:notice_progress(unit)
 	local key = unit:key()
 	local best = 0
@@ -843,6 +966,11 @@ function Sneak:guard_close(data)
 	return false
 end
 
+
+-- Civilians
+
+-- Alerted civilians (also the ones that are down) of the room of the bot that are not tied, inside the radius
+-- Is the civilian near enough to be kept down by a bot that waits at its spot (radius around the wait spot, same area)
 function Sneak:civ_in_reach(movement, civ)
 	local anchor = movement._should_stay_pos
 	if not anchor then
@@ -859,6 +987,7 @@ function Sneak:civ_in_reach(movement, civ)
 	return not area or groupai:get_area_from_nav_seg_id(civ:movement():nav_tracker():nav_segment()) == area
 end
 
+-- Can this bot keep civilians down right now (waiting in stealth, not busy with something else)
 function Sneak:can_keep_civs(unit, t)
 	if not alive(unit) or not self:active_for(unit) then
 		return false
@@ -874,6 +1003,9 @@ function Sneak:can_keep_civs(unit, t)
 	return not (damage_ext and (damage_ext:need_revive() or damage_ext:dead()))
 end
 
+-- The bot that looks after an alerted civilian: the nearest one that can reach it. Sending every bot to every civilian gets
+-- them in each other's way (and in view of everybody), one is enough. The owner keeps a civilian unless another bot is clearly
+-- nearer (3 m), so the bots do not swap the civilians around while they walk
 function Sneak:civ_owner(civ, t)
 	self._civ_owner = self._civ_owner or {}
 
@@ -912,6 +1044,7 @@ function Sneak:civ_owner(civ, t)
 	return best
 end
 
+-- All the civilians a bot that waits at its spot could keep down: the ones near the wait spot, alerted or not
 function Sneak:civs_in_reach(movement)
 	local civs = {}
 
@@ -930,11 +1063,16 @@ function Sneak:civs_in_reach(movement)
 	return civs
 end
 
+-- A bot that hides moves on to another post of its room now and then, one that nobody sees on the way and when it gets there
+-- (the alerted guards count as well, and guards that walk are predicted). With civilians around it only moves to a post from
+-- where it still can keep them down, in shout range and in view of at least one: wandering must never cost that. Returns true if
+-- the bot was sent somewhere
 function Sneak:wander(data, st)
 	if st.wander_t and data.t < st.wander_t then
 		return false
 	end
 
+	-- the next try is later either way
 	st.wander_t = data.t + math.lerp(8, 16, math.random())
 
 	local movement = data.unit:movement()
@@ -1035,6 +1173,7 @@ function Sneak:alerted_civilians(data)
 	return civs
 end
 
+-- Points on a ring around the civilians, so the bot can walk from one to the next and keep every civilian in view
 function Sneak:build_perimeter(civs, anchor, room, movement)
 	local centroid = Vector3()
 	for _, civ in ipairs(civs) do
@@ -1050,6 +1189,7 @@ function Sneak:build_perimeter(civs, anchor, room, movement)
 		local dir = pos - centroid
 		mvector3.set_z(dir, 0)
 
+		-- a single civilian (or one in the middle): stand between it and the anchor
 		if mvector3.length(dir) < 50 then
 			dir = anchor - pos
 			mvector3.set_z(dir, 0)
@@ -1062,6 +1202,7 @@ function Sneak:build_perimeter(civs, anchor, room, movement)
 			local point = mvector3.copy(tracker:field_position())
 			navman:destroy_nav_tracker(tracker)
 
+			-- points outside of the room of the bot are left out
 			if UsefulBots.hold:in_room(room, point) then
 				table.insert(points, {
 					pos = point,
@@ -1071,6 +1212,8 @@ function Sneak:build_perimeter(civs, anchor, room, movement)
 		end
 	end
 
+	-- A ring of points around a civilian does not fit into a small room, and in a big one there is more than one place to shout
+	-- from. The posts of the room do: every one from where a civilian is in shout range and in view
 	if movement then
 		local mask = managers.slot:get_mask("AI_visibility")
 		local shout_range = UsefulBots.melee and UsefulBots.melee.CIV_SHOUT_RANGE or 900
@@ -1109,6 +1252,12 @@ function Sneak:build_perimeter(civs, anchor, room, movement)
 	return result
 end
 
+
+-- Hiding
+
+-- Nearest spot inside the radius that nobody can see a crouching bot at. Returns the spot and if the bot is there already
+-- A spot the bot can run to (or is at) where nobody notices it, nil if there is none. The second value is true if the bot is
+-- hidden where it is (crouched). The alerted guards count as observers here, they notice at once what they see
 function Sneak:find_hidden_spot(data, check_path, force, avoid, toward)
 	local result = self:with_extra_observers(self:alerted_observers(), function()
 		return { self:search_hidden_spot(data, check_path, force, avoid, toward) }
@@ -1128,6 +1277,7 @@ function Sneak:find_hidden_spot(data, check_path, force, avoid, toward)
 	return result[1], result[2]
 end
 
+-- force: the spot the bot is at counts as not hidden (whatever the model says), avoid: spots that turned out to be seen
 function Sneak:search_hidden_spot(data, check_path, force, avoid, toward)
 	local center = data.m_pos
 
@@ -1141,6 +1291,7 @@ function Sneak:search_hidden_spot(data, check_path, force, avoid, toward)
 	local walk_speed = self:walk_speed(data, true)
 	local best, best_dis
 
+	-- a waiting bot hides in its room, a following one anywhere
 	local movement = data.unit:movement()
 	local room = movement._should_stay and UsefulBots.hold:anchor_room(movement) or nil
 
@@ -1158,6 +1309,8 @@ function Sneak:search_hidden_spot(data, check_path, force, avoid, toward)
 		return true
 	end
 
+	-- best_dis is the score: the way to the spot, less most of what the spot gets the bot on towards where it wants to go. A spot
+	-- on the way is better than a nearer one that takes it back
 	local function consider(pos)
 		local dis = mvec3_dis(pos, center)
 		local score = toward and dis - 0.6 * (mvec3_dis(center, toward) - mvec3_dis(pos, toward)) or dis
@@ -1179,6 +1332,7 @@ function Sneak:search_hidden_spot(data, check_path, force, avoid, toward)
 		navman:destroy_nav_tracker(tracker)
 	end
 
+	-- a camera covers a room so well that random spots hardly ever get lucky: try where it does not look
 	for _, pos in ipairs(self:camera_spots(center, radius)) do
 		consider(pos)
 	end
@@ -1186,6 +1340,8 @@ function Sneak:search_hidden_spot(data, check_path, force, avoid, toward)
 	return best, false
 end
 
+-- Spots below and behind the cameras around: a camera does not see what is right under it (or behind it), the exact check
+-- if a spot really is out of view comes later. Cameras that move do not matter, that spot stays out of view
 function Sneak:camera_spots(center, radius)
 	local navman = managers.navigation
 	local spots = {}
@@ -1214,6 +1370,7 @@ function Sneak:camera_spots(center, radius)
 				local tracker = navman:create_nav_tracker(tmp_vec3)
 				local pos = tracker:field_position()
 
+				-- a spot behind a wall snaps to the other side of it: not the spot that was meant
 				local dx, dy = pos.x - tmp_vec3.x, pos.y - tmp_vec3.y
 				if dx * dx + dy * dy <= 350 * 350 then
 					table.insert(spots, mvector3.copy(pos))
@@ -1227,6 +1384,8 @@ function Sneak:camera_spots(center, radius)
 	return spots
 end
 
+-- Guards that are alerted are no observers (they know already), but they notice a bot at once if it is in their view: a bot
+-- that hides from them or sneaks up on them counts them. Cached for a quarter of a second like the observers
 function Sneak:alerted_observers()
 	local t = TimerManager:game():time()
 	if self._alerted and t < self._alerted_t + 0.25 then
@@ -1256,6 +1415,13 @@ function Sneak:alerted_observers()
 	return list
 end
 
+
+-- Staying hidden: a bot that found a hiding place stays there (crouched, not moving) until
+--   - it is safe to leave: what noticed it forgot about it, no alerted guard is close and the way to the player is clear,
+--   - the place is compromised: somebody sees it or is about to (walking guards are predicted), then it looks for another,
+--   - a player calls it (Sneak:start_call).
+-- st.hiding = { t = when it started, t0 = when it was in place }
+
 function Sneak:begin_hiding(data, st, keep)
 	if not UsefulBots.settings.stealth_stay_hidden or keep and st.hiding then
 		return
@@ -1266,6 +1432,8 @@ function Sneak:begin_hiding(data, st, keep)
 	StreamHeist:log("Stealth: %s hides, it stays until it is safe to leave", self:bot_name(data.unit))
 end
 
+-- Is the bot seen (or about to be) at its spot, and how far are the observers with noticing it. While it hides the alerted
+-- guards count too
 function Sneak:danger(data, st, crouched)
 	local unit = data.unit
 
@@ -1280,6 +1448,20 @@ function Sneak:danger(data, st, crouched)
 	return result[1], result[2]
 end
 
+-- Would the first stretch of the way to the target go unseen (walking crouched, or in one dash)
+-- Routes
+--
+-- A sneaking bot has no paths of its own, the game hands it the shortest one and that is what it walks. Crossing open ground (a
+-- street) is not like going around a corner though: what counts is where along the way somebody sees the bot, and for how long. So
+-- when the way is blocked the bot looks at a few routes (Sneak.PLAN_ROUTES), plays every one through the detection model, with
+-- what each civilian, guard and camera has collected on the bot so far, and takes the best one, if that gets it there without
+-- being noticed (the limit of the risk it takes, see safe_hop):
+--   1. the shortest route, as the game finds it,
+--   2. shortest routes that go around the nav segment where the route before was seen the most,
+--   3. routes over a stop: a post of the level that nobody sees, where the bot waits until what it collected has faded.
+-- A route is a chain of straight legs that can be walked (checked on the nav mesh), so the bot really walks what was played
+-- through. Every leg is walked (crouched) or dashed, whichever is less noticed. Only the first stretch is planned.
+
 local function copy_array(array)
 	local result = {}
 
@@ -1290,6 +1472,9 @@ local function copy_array(array)
 	return result
 end
 
+-- The nav segments the game goes through to get from one spot to the other (those in `banned` are avoided), as spots: the
+-- centers of the segments, then straightened out wherever the way between them can be walked in a straight line
+-- The coarse path between two nav segments over ways a bot can go (see req/bot_nav.lua), the game's own search if that does not work
 function Sneak:coarse(data, from_seg, to_seg, from_pos, to_pos, banned)
 	local nav = UsefulBots.nav
 
@@ -1326,6 +1511,7 @@ function Sneak:coarse(data, from_seg, to_seg, from_pos, to_pos, banned)
 	})
 end
 
+-- A straight line through a doorway that is shut is not a shortcut
 function Sneak:line_shut(a, b)
 	local nav = UsefulBots.nav
 
@@ -1338,6 +1524,7 @@ function Sneak:line_shut(a, b)
 	return ok and shut
 end
 
+-- A leg that did not work out: the doorway it is stuck at is left out of the routes for a while
 function Sneak:leg_failed(data, from_pos, to_pos, why)
 	local nav = UsefulBots.nav
 
@@ -1350,6 +1537,7 @@ function Sneak:leg_failed(data, from_pos, to_pos, why)
 	end
 end
 
+-- Can the bot get to pos over ways it may take? (Also true if that can not be said)
 function Sneak:spot_reachable(data, pos)
 	local nav = UsefulBots.nav
 
@@ -1387,6 +1575,7 @@ function Sneak:route_polyline(data, from_pos, to_pos, banned)
 
 	table.insert(pts, mvector3.copy(to_pos))
 
+	-- the same shortcut the game takes with the paths of civilians
 	local up = math.UP * 4
 	local result = { pts[1] }
 	local i = 1
@@ -1407,6 +1596,7 @@ function Sneak:route_polyline(data, from_pos, to_pos, banned)
 	return result
 end
 
+-- The first max_len centimeters of a route
 function Sneak:cut_polyline(pts, max_len)
 	local result = { pts[1] }
 	local total = 0
@@ -1429,6 +1619,8 @@ function Sneak:cut_polyline(pts, max_len)
 	return result
 end
 
+-- How fast an observer notices the bot at pos at time t of the plan. An observer that walks may be a bit ahead of, or behind, where it
+-- is predicted to be (its route is not certain, nor its speed): the worst of the three moments counts
 function Sneak:plan_rate(obs, pos, crouched, t)
 	local best = self:notice_rate(self:predict(obs, t), pos, crouched)
 
@@ -1445,6 +1637,9 @@ function Sneak:plan_rate(obs, pos, crouched, t)
 	return best
 end
 
+-- One leg of the model: the bot goes from `from` to `to` (running, or crouch walking), starting t0 seconds from now, and what
+-- each observer has collected (progress, changed in place) follows. Returns the time it takes, the most any observer got to,
+-- and where that was
 function Sneak:advance_leg(observers, progress, from, to, speed, crouch_moving, t0)
 	local travel_t = mvec3_dis(from, to) / math.max(speed, 1)
 	local steps = math.max(1, math.ceil(travel_t / self.PLAN_STEP))
@@ -1474,6 +1669,7 @@ function Sneak:advance_leg(observers, progress, from, to, speed, crouch_moving, 
 	return travel_t, peak, peak_pos
 end
 
+-- The bot stands crouched at pos for a while (the end of a route)
 function Sneak:advance_stand(observers, progress, pos, t0, duration)
 	local steps = math.max(1, math.ceil(duration / self.PLAN_STEP))
 	local dt = duration / steps
@@ -1499,6 +1695,9 @@ function Sneak:advance_stand(observers, progress, pos, t0, duration)
 	return peak, peak_pos
 end
 
+-- Plays a route through the model. pts: the spots after the start, via[i]: the spot is a stop. Everything starts with what the
+-- observers have collected on the bot right now. At a stop nobody sees, the bot waits (up to 8 s) until that has faded, so
+-- what comes after starts from there
 function Sneak:evaluate_route(data, pts, via, sprint_limit)
 	local observers = self:observers()
 	local key = data.unit:key()
@@ -1521,6 +1720,8 @@ function Sneak:evaluate_route(data, pts, via, sprint_limit)
 		local walk = copy_array(progress)
 		local walk_t, walk_peak, walk_pos = self:advance_leg(observers, walk, pos, to, walk_speed, true, t)
 
+		-- Crouched the bot is seen from less far, but it takes three times as long, and with a guard that walks towards it that is
+		-- time it does not have: it only walks if that is clearly less noticed
 		local mode, chosen, leg_t, leg_peak, leg_pos = "dash", dash, dash_t, dash_peak, dash_pos
 
 		if (not sprint_limit or dash_peak > sprint_limit) and walk_peak < dash_peak - 0.03 then
@@ -1577,6 +1778,8 @@ function Sneak:evaluate_route(data, pts, via, sprint_limit)
 		peak, peak_pos = tail_peak, tail_pos
 	end
 
+	-- A sprint can make later legs or the arrival unsafe. Retry the original
+	-- conservative mode selection before rejecting this candidate.
 	if sprint_limit and peak > sprint_limit then
 		return self:evaluate_route(data, pts, via)
 	end
@@ -1598,6 +1801,7 @@ local function same_route(a, b)
 	return true
 end
 
+-- Places for a stop along the way: posts of the level that nobody sees, close to the line to the goal, best hidden first
 function Sneak:route_vias(data, start, goal, segs, count)
 	if count <= 0 then
 		return {}
@@ -1613,6 +1817,7 @@ function Sneak:route_vias(data, start, goal, segs, count)
 
 	mvector3.normalize(dir)
 
+	-- the segments of the routes so far and their neighbours
 	local all = {}
 	for seg in pairs(segs) do
 		all[seg] = true
@@ -1670,6 +1875,8 @@ function Sneak:route_vias(data, start, goal, segs, count)
 	return result
 end
 
+-- Looks at up to PLAN_ROUTES routes to the target and plays each through the model. Returns the best one (least noticed, then
+-- quickest) and all of them
 function Sneak:plan_routes(data, target, sprint_limit)
 	local navman = managers.navigation
 	local start = mvector3.copy(data.m_pos)
@@ -1721,6 +1928,7 @@ function Sneak:plan_routes(data, target, sprint_limit)
 
 	local last = add("shortest", base)
 
+	-- around the segment where the last route was seen the most
 	local banned = {}
 	for k = 1, 2 do
 		if not last or not last.peak_pos or last.peak <= 0.02 then
@@ -1736,6 +1944,7 @@ function Sneak:plan_routes(data, target, sprint_limit)
 		last = add("around " .. k, self:route_polyline(data, start, goal, banned))
 	end
 
+	-- over stops nobody sees
 	for _, via in ipairs(self:route_vias(data, start, goal, segs, self.PLAN_ROUTES - #results)) do
 		local first = self:route_polyline(data, start, via.pos)
 		local second = first and self:route_polyline(data, via.pos, goal)
@@ -1750,6 +1959,8 @@ function Sneak:plan_routes(data, target, sprint_limit)
 		end
 	end
 
+	-- everything so far still looks bad: one more try, banning every segment any of the others already used, to at least look
+	-- somewhere genuinely different instead of another local variation of the same corridor
 	local rough_best
 
 	for _, result in ipairs(results) do
@@ -1775,21 +1986,32 @@ function Sneak:plan_routes(data, target, sprint_limit)
 	return best, results
 end
 
+-- Plans, says what it found, and starts the route if it is good enough. Returns true if the bot was sent on its way
+-- which log a route belongs to: a bag delivery, or a bot that follows
 function Sneak:route_tag(st)
 	return st.tag or (st.kind == "bag" and "Stealth bag" or "Stealth follow")
 end
 
+-- Plans the routes to goal_pos and starts the best one if it is safe enough. Returns true if a route was started, otherwise false and
+-- why: "nopath" (the nav mesh gave no route at all) or "unsafe" (there are routes, none of them is safe enough). objective is the one the
+-- bot goes back to after each leg (a following bot: its follow objective), force takes the best route whatever it costs
 function Sneak:try_routes(data, st, player_pos, limit, objective, force, exact)
 	if self._routes_failed then
 		return false
 	end
 
+	-- What counts as safe for a route: not more than ROUTE_LIMIT with being noticed, whatever the setting says - unless exact says to
+	-- use limit exactly as given (a bot that is already being noticed and has only a moment to decide accepts more than that normal
+	-- ceiling, see its use in update_follow and req/bot_bag.lua). A bot that has been held up for a long time accepts a little more
+	-- too (0.01 per second after the first 20, up to 0.2)
 	local waited = st.blocked_t and data.t - st.blocked_t or 0
 	local bonus = math.min(0.2, math.max(0, waited - 20) * 0.01)
 	local route_limit = force and 1 or exact and limit or math.min(limit, self.ROUTE_LIMIT + bonus)
 
+	-- A bag carrier runs the legs that nobody is predicted to notice, and whatever the route costs if it is forced
 	local sprint = st.kind == "bag" and (force and 1 or self.SPRINT_LIMIT) or nil
 
+	-- the plan looks at a taller bot than the one that walks
 	self._head_margin = self.ROUTE_HEAD_MARGIN
 
 	local success, packed = pcall(function()
@@ -1814,6 +2036,7 @@ function Sneak:try_routes(data, st, player_pos, limit, objective, force, exact)
 		return false, "nopath"
 	end
 
+	-- what the observers have collected on the bot so far, that is where every route starts
 	local key = data.unit:key()
 	local collected = {}
 
@@ -1835,6 +2058,7 @@ function Sneak:try_routes(data, st, player_pos, limit, objective, force, exact)
 		table.insert(labels, string.format("%s %d%% in %.0f s (%s)", result.label, result.peak * 100, result.time, table.concat(modes, "+")))
 	end
 
+	-- a bot that is held up plans again and again: the ones it takes are always logged, the others now and then
 	if best.peak <= route_limit or not st.plan_log_t or data.t > st.plan_log_t then
 		st.plan_log_t = data.t + 6
 
@@ -1854,6 +2078,8 @@ function Sneak:try_routes(data, st, player_pos, limit, objective, force, exact)
 
 	StreamHeist:log(self:route_tag(st) .. ": %s takes it, predicted %d%%: %s", self:bot_name(data.unit), best.peak * 100, table.concat(legs, " / "))
 
+	-- what the plan expects at most while the bot is on each leg
+	-- what the plan says about each leg, the first one with the time it takes to get going
 	local planned_times = copy_array(best.leg_times)
 	planned_times[1] = (planned_times[1] or 0) + self.ROUTE_START_DELAY
 
@@ -1881,6 +2107,7 @@ function Sneak:try_routes(data, st, player_pos, limit, objective, force, exact)
 		retries = 0
 	}
 
+	-- where the bot goes back to if the route does not work out
 	st.last_hide = mvector3.copy(data.m_pos)
 
 	self:issue_leg(data, st, objective or data.objective)
@@ -1888,6 +2115,7 @@ function Sneak:try_routes(data, st, player_pos, limit, objective, force, exact)
 	return true
 end
 
+-- Sends the bot to the next spot of its route: an objective of its own, and the following objective comes back once it is there
 function Sneak:issue_leg(data, st, objective)
 	local route = st.route
 	local pt = route.pts[route.i]
@@ -1912,11 +2140,13 @@ function Sneak:issue_leg(data, st, objective)
 	})
 end
 
+-- The route ends: it is over, or it was given up
 function Sneak:end_route(st, why)
 	if st.route then
 		StreamHeist:log(self:route_tag(st) .. ": a route ends (%s), it took %.1f s (planned %.1f s)", why, TimerManager:game():time() - st.route.t0, st.route.planned_t or 0)
 	end
 
+	-- it got there: there is nothing to go back to, and the next route is planned at once
 	if why == "it got there" then
 		st.last_hide = nil
 		st.plan_t = nil
@@ -1925,9 +2155,12 @@ function Sneak:end_route(st, why)
 	st.route = nil
 end
 
+-- Called when the following objective is back (the bot got to the spot it was sent to, or somebody took its objective)
+-- Returns true if the bot got a new objective, false if it waits, nil if there is no route to drive anymore
 function Sneak:drive_route(data, st, objective)
 	local route = st.route
 
+	-- the route leads to where the player was (a delivery: to the drop-off): the player went somewhere else, or it takes too long
 	local moved = alive(objective.follow_unit) and mvec3_dis(objective.follow_unit:movement():m_pos(), route.player) > 1500
 
 	if moved or data.t > route.t0 + 90 then
@@ -1968,6 +2201,7 @@ function Sneak:drive_route(data, st, objective)
 	end
 
 	if mvec3_dis(data.m_pos, pt) < 250 then
+		-- how the leg went, for the log: the time it took against the plan, and what was collected against what the plan said
 		if route.arrival_logged ~= route.i then
 			route.arrival_logged = route.i
 
@@ -1976,6 +2210,7 @@ function Sneak:drive_route(data, st, objective)
 
 		local stop = route.stops[route.i] or 0
 
+		-- a stop: it waits until what the observers collected has faded
 		if stop > 0 and not route.stopped[route.i] then
 			route.stopped[route.i] = true
 			route.wait_until = data.t + stop
@@ -2003,6 +2238,7 @@ function Sneak:drive_route(data, st, objective)
 		return true
 	end
 
+	-- not there: the leg was interrupted, it tries again, but not for ever
 	route.retries = route.retries + 1
 
 	if route.retries > 3 then
@@ -2017,6 +2253,9 @@ function Sneak:drive_route(data, st, objective)
 	return true
 end
 
+-- While a leg is walked: if the bot collects more than the plan said it would, the route is over and the normal sneaking takes
+-- over again (it hides)
+-- Has the bot collected more than the plan said it would (plus the tolerance), or is it about to be noticed? Returns why if so
 function Sneak:route_deviation(st, noticed, t)
 	local route = st.route
 	local expected = route.expected[math.min(route.i, #route.expected)] or 0
@@ -2033,6 +2272,8 @@ function Sneak:route_deviation(st, noticed, t)
 	end
 
 	if previous and t - previous_t < 1 then
+		-- a route that already accepted elevated risk on purpose is not abandoned over a single fast tick the way a normal, cautious
+		-- route is - it only gives up here on a much sharper rise
 		local rise_limit = route.pushed and 0.20 or 0.08
 
 		if noticed - previous > rise_limit then
@@ -2041,6 +2282,7 @@ function Sneak:route_deviation(st, noticed, t)
 	end
 end
 
+-- Who notices the bot the most, for the log: what it is, how far away, whether it walks, and how much it faces the bot
 function Sneak:describe_source(obs, pos)
 	local dx, dy = pos.x - obs.pos.x, pos.y - obs.pos.y
 	local dis = math.sqrt(dx * dx + dy * dy)
@@ -2051,6 +2293,7 @@ function Sneak:describe_source(obs, pos)
 	return string.format("%s %.1f m away (%s, %d%% facing the bot)", obs.kind, dis / 100, obs.motion and "walking" or "standing", math.max(0, facing) * 100)
 end
 
+-- The spot the bot left is still out of view, now and by the time it gets there
 function Sneak:retreat_ok(data, spot)
 	local dis = mvec3_dis(data.m_pos, spot)
 
@@ -2065,6 +2308,7 @@ function Sneak:retreat_ok(data, spot)
 	end) and true or false
 end
 
+-- The route does not work out: it is over, and the bot goes back to the spot it left (see update_follow)
 function Sneak:abort_route(data, st, reason)
 	local route = st.route
 	if not route then
@@ -2079,10 +2323,13 @@ function Sneak:abort_route(data, st, reason)
 	st.retreat_to = route.origin
 	st.route = nil
 
+	-- a route taken to push on towards the destination that then fell through: not tried again until the bot is not being noticed
+	-- at all (see its use in update_follow and req/bot_bag.lua)
 	if route.pushed then
 		st.pushed = true
 	end
 
+	-- the next update looks for a spot at once
 	st.search_t = 0
 	st.next_t = 0
 
@@ -2092,6 +2339,7 @@ function Sneak:abort_route(data, st, reason)
 	end
 end
 
+-- While a leg is walked: if the bot collects more than the plan said it would, the route is over
 function Sneak:watch_route(data)
 	local st = data.unit:movement()._sh_sneak
 
@@ -2113,6 +2361,7 @@ function Sneak:watch_route(data)
 		return
 	end
 
+	-- the bot does not get on: a shut door, or something else in the way that the navigation does not know about
 	local route = st.route
 
 	if not route.stall_pos or mvec3_dis(route.stall_pos, data.m_pos) > 100 then
@@ -2121,6 +2370,7 @@ function Sneak:watch_route(data)
 		self:leg_failed(data, route.i > 1 and route.pts[route.i - 1] or route.origin, route.pts[route.i], "it stands still on the leg")
 		self:end_route(st, "it is stuck")
 
+		-- the next plan is made at once, without the way that failed
 		st.plan_t = nil
 
 		local objective = data.objective
@@ -2130,6 +2380,7 @@ function Sneak:watch_route(data)
 	end
 end
 
+-- Route code must never take the whole sneaking down with it
 function Sneak:safe_route(name, func, ...)
 	if self._routes_failed then
 		return nil
@@ -2162,17 +2413,21 @@ function Sneak:route_clear(data, target, limit)
 		return true
 	end
 
+	-- not unseen: through what watches it if that is slow enough, or a dash for as far as it goes safely
 	return self:safe_hop(data, to, limit, math.huge, true) and true or false
 end
 
+-- Can the bot leave its hiding place (target: where it wants to go, nil if it has no place to go to)
 function Sneak:safe_to_leave(data, st, target)
 	local hiding = st.hiding
 	hiding.t0 = hiding.t0 or data.t
 
+	-- give the observers time to forget about it
 	if data.t < hiding.t0 + self.HIDE_MIN_T or self:notice_progress(data.unit) > 0.01 then
 		return false
 	end
 
+	-- an alerted guard close by: it is not over
 	local alerted = self:alerted_observers()
 
 	for _, obs in ipairs(alerted) do
@@ -2185,6 +2440,7 @@ function Sneak:safe_to_leave(data, st, target)
 		return true
 	end
 
+	-- the longer it waits the more risk it takes: a window that a civilian looks out of does not go away
 	local waited = math.max(0, data.t - hiding.t0 - self.HIDE_MIN_T)
 	local limit = math.min(self.LIMIT_MAX, (UsefulBots.settings.stealth_dash_limit or self.DASH_LIMIT) + math.min(self.PATIENCE_MAX, waited * self.PATIENCE_RATE))
 
@@ -2193,6 +2449,10 @@ function Sneak:safe_to_leave(data, st, target)
 	end)
 end
 
+
+
+-- Movement
+
 function Sneak:hold_still(data, state)
 	local movement = data.unit:movement()
 
@@ -2200,6 +2460,7 @@ function Sneak:hold_still(data, state)
 		if not movement._sh_hold_still then
 			movement._sh_hold_still = true
 
+			-- stop what the bot is doing right now
 			if data.internal_data.advancing then
 				data.brain:action_request({
 					body_part = 2,
@@ -2212,20 +2473,39 @@ function Sneak:hold_still(data, state)
 	end
 end
 
-function Sneak:set_crouch_walk(data, state)
-	local st = data.unit:movement()._sh_sneak
-	local char_tweak = data.char_tweak
+-- A bot shares its character's tweak table with every other unit of that same model, cop or bot - not a copy, the exact same
+-- table in memory (CopBase:char_tweak() just returns self._char_tweak, set once at spawn straight from tweak_data.character,
+-- never cloned). Mutating .crouch_move on it directly, as set_crouch_walk always used to, changed it for every one of them at
+-- once: two bots of the same model needing a different crouch_move state at the same moment fought over the one shared flag,
+-- and whichever last wrote it that tick won for both - a bot crouch-shuffling that this code never told it to, and nothing about
+-- that bot's own state could explain. A bot gets its own private copy of just this one table, the first time this runs for it -
+-- a shallow clone, so every other field on it (move_speed, detection, sounds, ...) still points at the exact same shared data
+-- everything else already reads; only .crouch_move becomes independently settable per bot from here on
+function Sneak:own_char_tweak(unit)
+	local base = unit:base()
 
-	if state then
-		if st.prev_crouch_move == nil then
-			st.prev_crouch_move = char_tweak.crouch_move or false
+	if not base._sh_char_tweak_own then
+		local shared = base:char_tweak()
+		local own = {}
+
+		for k, v in pairs(shared) do
+			own[k] = v
 		end
 
-		char_tweak.crouch_move = true
-	elseif st.prev_crouch_move ~= nil then
-		char_tweak.crouch_move = st.prev_crouch_move
-		st.prev_crouch_move = nil
+		base._char_tweak = own
+		base._sh_char_tweak_own = true
 	end
+
+	return base._char_tweak
+end
+
+-- With its own copy of the table, this no longer has anyone else's state to protect: it can just always set what this bot
+-- currently wants, instead of the old save-one-value-and-restore-it-later dance that a shared table made unsafe in the first place
+function Sneak:set_crouch_walk(data, state)
+	local char_tweak = self:own_char_tweak(data.unit)
+
+	char_tweak.crouch_move = state and true or false
+	data.char_tweak = char_tweak
 end
 
 function Sneak:set_pose(data, crouch)
@@ -2242,6 +2522,7 @@ function Sneak:set_pose(data, crouch)
 	end
 end
 
+-- Enemies notice a crouching bot at a shorter range, the attention settings have to follow the pose
 function Sneak:sync_attention(data)
 	local unit = data.unit
 	local st = unit:movement()._sh_sneak
@@ -2284,6 +2565,7 @@ function Sneak:move_to(data, pos, haste, crouch)
 	TeamAILogicBase._exit(unit, "travel")
 end
 
+-- Everything back to normal, called whenever the behavior stops applying
 function Sneak:release(unit)
 	if not alive(unit) then
 		return
@@ -2299,18 +2581,13 @@ function Sneak:release(unit)
 	movement._sh_sneak = nil
 
 	local brain = unit:brain()
-	local logic_data = brain and brain._logic_data
-
-	if st and st.prev_crouch_move ~= nil and logic_data and logic_data.char_tweak then
-		logic_data.char_tweak.crouch_move = st.prev_crouch_move
-	end
-
 	local objective = brain and brain:objective()
 	if objective and (objective.type == "defend_area" or objective.type == "follow") then
 		objective.haste = nil
 		objective.pose = nil
 	end
 
+	-- crouching or not is up to the normal logic again, the attention settings go back to standing
 	if st and st.attention_crouched and unit:base()._sh_stealth_awake and managers.groupai:state():whisper_mode() and brain._attention_handler then
 		PlayerMovement.set_attention_settings(brain, {
 			"pl_mask_on_foe_non_combatant_whisper_mode_stand",
@@ -2319,6 +2596,10 @@ function Sneak:release(unit)
 	end
 end
 
+
+-- Update, called from the logic updates of the bots. Returns true if the logic was left
+
+-- Why the model says what it says about a camera and a spot (for the log)
 function Sneak:explain_camera(obs, pos, crouched)
 	local head = Vector3()
 	mvector3.set(head, pos)
@@ -2337,6 +2618,7 @@ function Sneak:explain_camera(obs, pos, crouched)
 		mvec3_dis(obs.pos, head) / 100, max_dis / 100, mvector3.angle(obs.fwd, dir), obs.cone * 0.5, tostring(plain and true or false), tostring(ignoring and true or false))
 end
 
+-- Cameras that are noticing this bot (according to the camera): compare with the model and log both, at most every 2 s
 function Sneak:check_cameras(data)
 	local unit = data.unit
 	local movement = unit:movement()
@@ -2367,6 +2649,7 @@ function Sneak:check_cameras(data)
 	end
 end
 
+-- Measuring and logging must never break the sneaking itself
 function Sneak:diagnose(data)
 	if self._diag_failed or not data.unit:base()._sh_stealth_awake then
 		return
@@ -2392,6 +2675,7 @@ function Sneak:update(data)
 
 	self:diagnose(data)
 
+	-- fighting a guard, hiding is off the table (req/bot_melee.lua)
 	local engaged = unit:movement()._sh_engaged
 	if engaged and data.t < engaged then
 		return
@@ -2415,6 +2699,7 @@ function Sneak:update_active(data)
 		return
 	end
 
+	-- a bot that was following (its state is of the other kind) and then got told to wait ends up here, start over
 	local st = movement._sh_sneak
 	if st and st.kind ~= "wait" then
 		self:release(unit)
@@ -2445,10 +2730,12 @@ function Sneak:update_active(data)
 		objective.haste = nil
 	end
 
+	-- being seen or noticed can not be waited out, get out of view
 	if exposed or noticed > 0.05 then
 		if not st.evading and data.t > st.search_t then
 			st.search_t = data.t + 1
 
+			-- the game says the bot is noticed although the model sees nobody looking at it: this spot is not as hidden as it seems
 			local force = noticed > 0.05 and not exposed and rising
 			if force then
 				st.bad_spots = st.bad_spots or {}
@@ -2474,6 +2761,7 @@ function Sneak:update_active(data)
 
 				return true
 			elseif spot then
+				-- crouching is enough
 				self:begin_hiding(data, st, true)
 			end
 		end
@@ -2488,6 +2776,7 @@ function Sneak:update_active(data)
 		return
 	end
 
+	-- a bot that hid stays there until it is safe to leave
 	if st.hiding then
 		if not self:safe_to_leave(data, st, nil) then
 			st.mode = "hide"
@@ -2503,6 +2792,7 @@ function Sneak:update_active(data)
 		st.mode_t = data.t
 	end
 
+	-- what to do: keep civilians down while there are alerted ones, hide otherwise or if a guard is close
 	local mode = (guard_close or #civs == 0) and "hide" or "civ"
 	if mode ~= st.mode and (guard_close or mode == "civ" or data.t > st.mode_t + self.SETTLE_T) then
 		StreamHeist:log("Stealth wait: %s switches to %s (%d alerted civilians, guard close: %s)", self:bot_name(unit), mode, #civs, tostring(guard_close))
@@ -2519,6 +2809,7 @@ function Sneak:update_active(data)
 	self:sync_attention(data)
 
 	if st.mode == "hide" then
+		-- nobody sees us here: it stays, and every now and then moves on to another spot nobody sees
 		if UsefulBots.settings.stealth_wander and objective.in_place and not guard_close and self:wander(data, st) then
 			return true
 		end
@@ -2528,10 +2819,12 @@ function Sneak:update_active(data)
 		return
 	end
 
+	-- keep civilians down: walk the perimeter, every step only if nobody notices the bot on the way
 	if not objective.in_place then
 		return
 	end
 
+	-- arrived at a point: it stays there a moment (civilians are shouted at from where the bot stands), it does not circle nonstop
 	if st.civ_dwell then
 		st.civ_dwell = nil
 		st.civ_next_t = data.t + math.lerp(1.5, 4, math.random())
@@ -2565,6 +2858,7 @@ function Sneak:update_active(data)
 
 				return true
 			elseif dash_checks < 2 then
+				-- not unseen, but maybe quick enough: observers need a moment to notice a bot
 				dash_checks = dash_checks + 1
 
 				if self:dash_safe(data, point) then
@@ -2590,11 +2884,13 @@ function Sneak:update_active(data)
 		end
 	end
 
+	-- every point is either where we are or can not be reached unseen, wait patiently
 	st.civ_next_t = data.t + 1
 	self:hold_still(data, #points > 0)
 end
 
 
+-- Sneaking while following (bots that follow you in stealth)
 
 function Sneak:follow_active_for(unit)
 	if self._failed or not UsefulBots.settings.stealth_follow then
@@ -2621,6 +2917,7 @@ function Sneak:follow_active_for(unit)
 	return objective and (objective.type == "follow" or objective.sh_evade or objective.sh_route) and true or false
 end
 
+-- The bot was seen or is being noticed: sprint to a hidden spot and go back to following from there
 function Sneak:evade_follow(data, spot)
 	self:hold_still(data, false)
 	self:set_crouch_walk(data, false)
@@ -2649,10 +2946,12 @@ function Sneak:update_follow(data)
 	local movement = unit:movement()
 	local objective = data.objective
 
+	-- a route is being walked: only keep an eye on what it collects
 	if objective and objective.sh_route then
 		return self:safe_route("watch", self.watch_route, data)
 	end
 
+	-- other objectives (reviving, evading, charging at a guard) are left alone
 	if not objective or objective.type ~= "follow" or not alive(objective.follow_unit) then
 		return
 	end
@@ -2680,6 +2979,7 @@ function Sneak:update_follow(data)
 	local exposed, noticed = self:danger(data, st, crouched)
 	local rising = self:notice_rising(st, noticed, data.t)
 
+	-- On a route, being seen a little is part of the plan: it is over as soon as the bot has collected more than the plan said
 	local on_route = false
 
 	if st.route then
@@ -2692,11 +2992,13 @@ function Sneak:update_follow(data)
 		end
 	end
 
+	-- being seen or noticed can not be waited out, get out of view
 	if (exposed or noticed > 0.05) and not on_route then
 		if st.route then
 			self:end_route(st, "noticed")
 		end
 
+		-- a dash that gets noticed is over
 		if st.dash_until then
 			StreamHeist:log("Stealth follow: %s is noticed during a dash, the dash is over", self:bot_name(unit))
 
@@ -2707,6 +3009,7 @@ function Sneak:update_follow(data)
 		if data.t > st.search_t then
 			st.search_t = data.t + 1
 
+			-- the game says the bot is noticed although the model sees nobody looking at it: this spot is not as hidden as it seems
 			local force = noticed > 0.05 and not exposed and rising
 			if force then
 				st.bad_spots = st.bad_spots or {}
@@ -2722,12 +3025,18 @@ function Sneak:update_follow(data)
 
 			local target_pos = objective.follow_unit:movement():m_pos()
 
+			-- on towards you instead of away, by whatever route (not a straight line - that ignores walls, which is what went wrong the
+			-- first time this was tried) stays under the cutoff, if one exists - tried once per episode (st.pushed), not on every single
+			-- re-check straight after the last attempt fell through, which is what thrashed the bot in place and got it caught the second
+			-- time this was tried
 			if not st.pushed and self:safe_route("plan", self.try_routes, data, st, target_pos, self.NOTICE_CUTOFF, nil, false, true) then
 				StreamHeist:log("Stealth follow: %s is being noticed, takes a route on towards you instead of hiding", self:bot_name(unit))
 
 				return true
 			end
 
+			-- A route that was given up: back to the spot the bot left, if that is still out of view (it was hidden there), otherwise
+			-- the nearest hidden spot. Without such a route, a spot on the way to the player is preferred
 			local retreat = st.retreat_to
 			st.retreat_to = nil
 
@@ -2748,6 +3057,7 @@ function Sneak:update_follow(data)
 
 				return true
 			elseif spot then
+				-- crouching is enough
 				self:begin_hiding(data, st, true)
 			end
 		end
@@ -2759,8 +3069,10 @@ function Sneak:update_follow(data)
 		return
 	end
 
+	-- clear of being noticed (or safely on a route through it): a fresh episode, free to push towards you again if it comes to that
 	st.pushed = nil
 
+	-- a route that is walked goes on (or ends)
 	if st.route then
 		local result = self:safe_route("drive", self.drive_route, data, st, objective)
 
@@ -2773,6 +3085,7 @@ function Sneak:update_follow(data)
 		end
 	end
 
+	-- a bot that hid stays there until it is safe to leave
 	if st.hiding then
 		if not self:safe_to_leave(data, st, objective.follow_unit:movement():m_pos()) then
 			self:set_pose(data, true)
@@ -2787,6 +3100,7 @@ function Sneak:update_follow(data)
 		st.hiding = nil
 	end
 
+	-- a dash is not interrupted (being noticed is handled above)
 	if st.dash_until then
 		if data.t < st.dash_until then
 			self:hold_still(data, false)
@@ -2799,6 +3113,7 @@ function Sneak:update_follow(data)
 		StreamHeist:log("Stealth follow: %s dash is over, it covered %.1f of %.1f m and is %.1f m from you", self:bot_name(unit), mvec3_dis(st.dash_from or data.m_pos, data.m_pos) / 100, (st.dash_dis or 0) / 100, mvec3_dis(data.m_pos, objective.follow_unit:movement():m_pos()) / 100)
 	end
 
+	-- crouch (and crouch walk) when somebody is near
 	local crouch = self:guard_close(data) or self:observer_near(data.m_pos, self.CROUCH_RANGE)
 
 	self:set_pose(data, crouch)
@@ -2806,6 +3121,7 @@ function Sneak:update_follow(data)
 	self:set_crouch_walk(data, crouch)
 	objective.pose = crouch and "crouch" or nil
 
+	-- would the next steps towards the player be seen? then wait patiently until it is clear
 	local target = objective.follow_unit:movement():m_pos()
 
 	mvector3.set(tmp_vec3, target)
@@ -2833,6 +3149,9 @@ function Sneak:update_follow(data)
 		end
 	end
 
+	-- Not unseen: but observers need a moment to notice a bot, and some need long. The bot walks on if the ones ahead are too slow
+	-- to matter, dashes for as far as it goes safely if not, and only waits if neither works. The longer it waits the more risk it
+	-- takes (a civilian that looks out of a window does not go away)
 	if blocked and st.walk_ok_until and data.t < st.walk_ok_until then
 		blocked = false
 	end
@@ -2848,6 +3167,9 @@ function Sneak:update_follow(data)
 
 			local routes_on = UsefulBots.settings.stealth_routes and not self._routes_failed
 
+			-- Routes first: the shortest way is not the only one, and across open ground the others can be the only ones that work.
+			-- If none of them is safe enough the bot does not gamble: it stays hidden (or goes back to the spot it left) and looks
+			-- again in a moment, the guard that walks about does not stay where it is
 			if routes_on and data.t > (st.plan_t or 0) then
 				st.plan_t = data.t + self.PLAN_COOLDOWN
 
@@ -2906,11 +3228,17 @@ function Sneak:update_follow(data)
 	self:hold_still(data, blocked)
 end
 
+
+-- Calling an awake bot in stealth: it walks to where the caller stood, without hiding on the way, and goes back to
+-- sneaking (following) once it is there. Called from the brain when a bot gets a follow command.
+
 function Sneak:on_called(brain, other_unit)
 	if self._failed then
 		return
 	end
 
+	-- a player calls the bot over: it does not stay in its hiding place (the sneaking while following still waits if the way
+	-- is blocked)
 	local unit = brain._unit
 	local st = alive(unit) and unit:movement()._sh_sneak
 
@@ -2940,6 +3268,7 @@ function Sneak:start_call(brain, other_unit)
 		return
 	end
 
+	-- only the follow command, the objective was just set by the logic
 	local objective = data.objective
 	if not objective or objective.type ~= "follow" or objective.follow_unit ~= other_unit then
 		return
@@ -2952,11 +3281,14 @@ function Sneak:start_call(brain, other_unit)
 		return
 	end
 
+	-- walking guards are predicted: if the run to the caller would get the bot noticed, it stays in cover and comes when it
+	-- is safe (the normal sneaking while following waits for that or dashes by itself)
 	if not self:dash_safe(data, pos, true) then
 		StreamHeist:log("Stealth call: %s can not get to you unseen right now, waits in cover", self:bot_name(unit))
 		return
 	end
 
+	-- drop everything the sneaking code was doing (waiting until it is clear, crouching, ...)
 	self:release(unit)
 
 	local followup = GroupAIStateBase.clone_objective(objective)
@@ -2972,6 +3304,9 @@ function Sneak:start_call(brain, other_unit)
 
 	StreamHeist:log("Stealth call: %s runs to where you stood (%.1f m), nobody is going to notice it in time", self:bot_name(unit), mvec3_dis(data.m_pos, pos) / 100)
 end
+
+
+-- Marking
 
 function Sneak:update_marking(data)
 	if self._failed then
@@ -3005,6 +3340,7 @@ function Sneak:mark_targets(data)
 	local best_guard, best_guard_dis
 	local best_camera, best_camera_dis
 
+	-- a guard candidate always wins over a camera one, however much closer the camera is
 	local function consider(unit, pos, kind)
 		local contour = unit:contour()
 		if not contour or contour:find_id_match("^mark") then

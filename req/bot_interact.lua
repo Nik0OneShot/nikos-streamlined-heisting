@@ -1,42 +1,60 @@
+-- Bots that do interactions: the ones you point them at, the ones they were told to do while they wait, pagers, and the corpses of the
+-- guards they took down (answer the pager, bag the body, leave it where nobody finds it).
+--
+-- How an interaction is done: the bot walks there (in stealth over the routes of req/bot_sneak.lua), stands at the spot, and the interaction
+-- runs the way the game runs it for a player (interact_start, the timer, interact_interupt, interact), with the host player as the one who
+-- does it. The bot is what the world sees: it walks, stands still, has a progress bar. That way every skill of the host that changes an
+-- interaction (a faster lockpick, a faster drill repair, the chance of a pager bluff) applies without copying any of it, and the code of
+-- the interactions, which was written for players, gets what it expects. Nothing that needs equipment or a weapon is done (see check).
+--
+-- State: TeamAIMovement._sh_errand (what a bot is on its way to do, or doing), _sh_orders (what it does again and again while it waits),
+-- _sh_kill (a dominated guard it is to kill), _sh_bodybags (how many body bags it has left).
 UsefulBots.interact = UsefulBots.interact or {}
 local Interact = UsefulBots.interact
 
 Interact.NET_ID = "sh_interact"
 
-Interact.POINTER_HOLD = 0.5
-Interact.POINTER_RANGE = 100000 
-Interact.POINTER_TOLERANCE = 150 
-Interact.POINTER_TIMEOUT = 20 
-Interact.ARRIVE_DISTANCE = 120
-Interact.WORK_LEEWAY = 1.5
-Interact.ERRAND_TIMEOUT = 90 
-Interact.PUSH_AFTER = 6 
-Interact.BODY_BAGS = 5 
-Interact.PAGER_HUMAN_RANGE = 1500 
-Interact.PAGER_WAIT = 12
-Interact.KILL_TIME = 20 
+Interact.POINTER_HOLD = 0.5 -- seconds the melee key is held on a bot to bring up the pointer
+Interact.POINTER_RANGE = 100000 -- how far the pointer looks (cm) - effectively unbounded for any real level; what the bot can
+-- see (bot_sees(), a 360-degree check with no range cap of its own) is what actually limits it now
+Interact.POINTER_TOLERANCE = 150 -- how far from the line of sight an interaction can be and still be the one that is aimed at (cm)
+Interact.POINTER_TIMEOUT = 20 -- seconds the pointer stays up
+Interact.ARRIVE_DISTANCE = 120 -- from the spot the bot stands at (cm)
+Interact.WORK_LEEWAY = 1.5 -- an interaction goes on while the bot is at most this many times the interact distance away
+Interact.ERRAND_TIMEOUT = 90 -- seconds a bot may take to get there
+Interact.PUSH_AFTER = 6 -- a pager is answered even if nothing is safe, after this many seconds
+Interact.BODY_BAGS = 5 -- body bags a bot has, whatever the skills of the host are
+Interact.PAGER_HUMAN_RANGE = 1500 -- a pager is left to a player who is this close and not busy (cm)
+Interact.PAGER_WAIT = 12 -- seconds a killed guard has to start ringing its pager
+Interact.KILL_TIME = 20 -- seconds a bot has to kill a guard it dominated
 Interact.CHAIN_TIME = 150
 Interact.WATCH = 0.5
-Interact.TIES = 4 
-Interact.TIES_SKILL = 4
-Interact.TIE_WAIT = 10 
-Interact.GROUP_RADIUS = 1000 
-Interact.GUARD_BLOCK = 60 
+Interact.PAGER_GRACE = 8 -- seconds after a corpse's pager clears before a bot may claim it, giving the player who was
+-- right there answering it first refusal, instead of counting the wait as having started while the pager was still live
+Interact.TIES = 4 -- cable ties a bot has
+Interact.TIES_SKILL = 4 -- and this many more if the host has the skill that gives more cable ties (cable_tie.quantity_1)
+Interact.TIE_WAIT = 10 -- seconds a civilian that a player made surrender waits for the player before a bot ties it
+Interact.GROUP_RADIUS = 1000 -- civilians this close to each other are one group, and one bot guards it (cm)
+Interact.GUARD_BLOCK = 60 -- seconds a group is left alone after its guard was called away
 Interact.GUARD_SAMPLES = 16
-Interact.GUARD_SPOTS = 4 
-Interact.GUARD_PATROL_MIN = 10
+Interact.GUARD_SPOTS = 4 -- watch spots of a group kept, cycled between instead of freezing at one
+Interact.GUARD_PATROL_MIN = 10 -- how long a bot stays at a watch spot before it moves to another one (s)
 Interact.GUARD_PATROL_MAX = 20
 
 Interact.DENY_FIELDS = { "special_equipment", "required_deployable", "equipment_consume", "deployable_consume", "equipment_needed" }
+-- What needs a deployable or a weapon, or is somebody else's business (revive is the game's own). And everything that opens something: a bot
+-- that forces a door, a gate, a shutter, a hatch or a vault open breaks the heist. There are dozens of those interactions, so it is the name
+-- that is looked at. Picking a lock is the way for a bot to get through a door, it is the one exception
 Interact.DENY_ID = { "shaped", "trip_mine", "ecm", "emp", "saw", "c4", "thermite", "gasoline", "dynamite", "sentry", "equipment", "hostage", "revive", "intimidate", "trade", "convert", "open", "close", "door", "gate", "shutter", "hatch", "vent", "window", "lever", "elevator", "breach", "crowbar", "pry", "cut_", "chain", "kick", "knock", "atm", "cash_machine", "lock", "key", "card", "rfid", "ammo_bag", "doctor_bag", "first_aid", "fak", "grenade_crate", "armor", "bodybags_bag" }
 
-Interact.claims = Interact.claims or {}
-Interact.chains = Interact.chains or {} 
-Interact.dominators = Interact.dominators or {} 
-Interact.workers = Interact.workers or {} 
-Interact.civ_seen = Interact.civ_seen or {} 
-Interact.civ_owners = Interact.civ_owners or {} 
-Interact.guard_blocks = Interact.guard_blocks or {}
+Interact.claims = Interact.claims or {} -- interactive unit key -> the bot that is on it
+Interact.chains = Interact.chains or {} -- guard key -> what the bot that took it down does with it
+Interact.dominators = Interact.dominators or {} -- guard key -> the bot that is dominating it
+Interact.workers = Interact.workers or {} -- interactive unit key -> the bot that is doing it (its voice is the one that speaks)
+Interact.civ_seen = Interact.civ_seen or {} -- civilian key -> when it was first seen waiting to be tied
+Interact.civ_owners = Interact.civ_owners or {} -- civilian key -> the bot that shouted at it
+Interact.guard_blocks = Interact.guard_blocks or {} -- places where the guard was called away: { pos, t }
+Interact.pager_grace = Interact.pager_grace or {} -- corpse key -> when its pager was first seen clear (see PAGER_GRACE)
 
 local mvec3_dis = mvector3.distance
 
@@ -60,6 +78,7 @@ function Interact:active(unit)
 	return alive(unit) and unit:movement()._sh_errand ~= nil
 end
 
+-- The player whose skills the interactions use
 function Interact:actor()
 	local unit = managers.player:player_unit()
 	local damage_ext = alive(unit) and unit:character_damage()
@@ -69,6 +88,13 @@ function Interact:actor()
 	end
 end
 
+------------------------------------------------------------------------------------------------------------------------------------
+-- What a bot may do
+------------------------------------------------------------------------------------------------------------------------------------
+
+-- The game answers the first four pagers of a heist with a bluff that always works, the fifth always fails (the chances are 1, 1, 1, 1, 0,
+-- the answer of the fifth calls the police, so does a pager that is not answered, or one that is given up). Is the next answer one of those?
+-- Returns that, and how many answers succeeded so far
 function Interact:pager_exhausted()
 	local count = managers.groupai:state():get_nr_successful_alarm_pager_bluffs() or 0
 
@@ -82,11 +108,13 @@ function Interact:pager_exhausted()
 	return ok and chance ~= nil and chance <= 0, count
 end
 
+-- Returns true and the id of the interaction, or false and why not. The bot has no deployable, no weapon for the job and no equipment
 function Interact:check(target, bot)
 	if not alive(target) then
 		return false, "that is gone"
 	end
 
+	-- A bag on the floor: a bot picks it up unless it carries one already (a bot holds one bag at a time), whatever a bag weighs
 	local carry = target:carry_data()
 
 	if carry then
@@ -103,6 +131,15 @@ function Interact:check(target, bot)
 		end
 
 		return true, "carry_pickup"
+	end
+
+	-- never bagged unless it is actually dead - a defensive gate that holds whatever else fed it this target
+	if target:interaction() and target:interaction().tweak_data == "corpse_dispose" then
+		local damage_ext = target:character_damage()
+
+		if not damage_ext or not damage_ext:dead() then
+			return false, "that is not dead", true
+		end
 	end
 
 	local ext = target:interaction()
@@ -122,10 +159,13 @@ function Interact:check(target, bot)
 		return false, "that interaction is not known"
 	end
 
+	-- a civilian that waits to be tied: a bot ties it with cable ties of its own (not the ones of the host). Whatever the interaction of a
+	-- civilian is called, this is the only thing a bot does with one (the hostage ones, for a civilian that is tied already, are not for bots)
 	if id == "intimidate" or managers.enemy:all_civilians()[target:key()] then
 		return self:check_tie(target, bot)
 	end
 
+	-- What is not for bots is not shown: the third result says so (nothing is aimed at, there is no hint)
 	for _, field in ipairs(self.DENY_FIELDS) do
 		if tweak[field] then
 			return false, "bots have no equipment for that", true
@@ -138,6 +178,7 @@ function Interact:check(target, bot)
 		end
 	end
 
+	-- the next pager is an alarm whatever anybody does: a bot leaves it alone
 	if id == "corpse_alarm_pager" and self:pager_exhausted() then
 		return false, "the next pager is an alarm, whatever a bot does"
 	end
@@ -146,6 +187,7 @@ function Interact:check(target, bot)
 		return false, "no player to lend the skills"
 	end
 
+	-- a body bag is done with the bags of the bot, not with the skill of the host
 	if id == "corpse_dispose" then
 		if bot and (bot:movement()._sh_bodybags or self.BODY_BAGS) <= 0 then
 			return false, "this bot has no body bags left"
@@ -167,6 +209,7 @@ function Interact:check(target, bot)
 	return true, id
 end
 
+-- Cable ties: only civilians (a guard that surrendered is not tied by a bot), and only with the ties the bot has
 function Interact:check_tie(target, bot)
 	if not managers.enemy:all_civilians()[target:key()] or self:civ_tied(target) then
 		return false, "bots do not do that", true
@@ -187,6 +230,7 @@ function Interact:check_tie(target, bot)
 	return true, "intimidate"
 end
 
+-- Cable ties of a bot: 4, and 4 more if the host has the skill that gives more of them
 function Interact:ties_left(unit)
 	local movement = unit:movement()
 
@@ -213,6 +257,7 @@ function Interact:civilians()
 end
 
 function Interact:civ_tied(civ)
+	-- a civilian that is gone is not one that is left to tie
 	if not alive(civ) then
 		return true
 	end
@@ -236,6 +281,7 @@ function Interact:civ_logic(civ)
 	return data and data.name
 end
 
+-- A civilian that surrendered and waits to be tied
 function Interact:civ_held(civ)
 	if not alive(civ) or self:civ_tied(civ) or self:civ_logic(civ) ~= "surrender" then
 		return false
@@ -246,6 +292,10 @@ function Interact:civ_held(civ)
 
 	return ext and ext:active() and not ext:disabled() and id and not id:find("hostage", 1, true) and true or false
 end
+
+------------------------------------------------------------------------------------------------------------------------------------
+-- Errands
+------------------------------------------------------------------------------------------------------------------------------------
 
 function Interact:stand_position(target)
 	local navman = managers.navigation
@@ -265,6 +315,7 @@ function Interact:work_distance(target)
 	return distance * self.WORK_LEEWAY
 end
 
+-- kind: "interact" (anything the bot may do), "pager", "bodybag". reason: who wanted it (for the log). opts: standing, push, chain
 function Interact:start(unit, target, kind, reason, opts)
 	opts = opts or {}
 
@@ -294,6 +345,7 @@ function Interact:start(unit, target, kind, reason, opts)
 	end
 
 	if UsefulBots.bag:active(unit) then
+		-- a pager does not wait for a delivery
 		if kind ~= "pager" then
 			return false
 		end
@@ -305,6 +357,7 @@ function Interact:start(unit, target, kind, reason, opts)
 		return false
 	end
 
+	-- only a bot that is masked up: one that sleeps in stealth does nothing
 	if whisper and UsefulBots.stealth:enabled() and movement:cool() then
 		return false
 	end
@@ -344,6 +397,7 @@ function Interact:start(unit, target, kind, reason, opts)
 	return true
 end
 
+-- The errand is over. success: it was done
 function Interact:end_errand(unit, errand, why, success)
 	local movement = unit:movement()
 
@@ -366,6 +420,10 @@ function Interact:end_errand(unit, errand, why, success)
 
 	UsefulBots.sneak:release(unit)
 
+	-- a body bag hands off to req/bot_bag.lua a moment later (bag_corpse()'s call_on_next_update), which sets its own objective for
+	-- the carry-and-hide walk once it runs. Resetting the objective here first, before that has had a chance to run, is at best
+	-- pointless and at worst a bot left holding an objective from neither system for that one tick - so it is skipped here and left
+	-- entirely to Bag:cancel(), which already does the equivalent reset once the carry is actually over
 	if errand.kind ~= "bodybag" then
 		local objective = brain and brain:objective()
 
@@ -395,6 +453,7 @@ function Interact:cancel(unit, why)
 	self:end_errand(unit, errand, why or "cancelled", false)
 end
 
+-- A bot that answers a pager is not called away from it: giving up an answer calls the police, so it finishes first
 function Interact:pager_in_the_way(unit)
 	local errand = alive(unit) and unit:movement()._sh_errand
 
@@ -407,6 +466,7 @@ function Interact:pager_in_the_way(unit)
 	return false
 end
 
+-- A player called the bot: what it was on its way to do is not what it is to do anymore
 function Interact:on_called(unit, why)
 	if not self:pager_in_the_way(unit) then
 		self:block_guard(unit)
@@ -414,6 +474,7 @@ function Interact:on_called(unit, why)
 	end
 end
 
+-- The guard of a group was called away: nobody else takes its place for a while (it was called for a reason)
 function Interact:block_guard(unit)
 	local errand = alive(unit) and unit:movement()._sh_errand
 
@@ -438,6 +499,7 @@ function Interact:group_blocked(pos, t)
 	return false
 end
 
+-- Somebody told the bot to follow again: neither is what it was told to do while it waited
 function Interact:on_released(unit)
 	if not self:pager_in_the_way(unit) then
 		self:block_guard(unit)
@@ -451,6 +513,11 @@ function Interact:on_released(unit)
 	end
 end
 
+------------------------------------------------------------------------------------------------------------------------------------
+-- Getting there: over routes in stealth (the delivery code of the bags, Bag:update_routed, does the walking), straight there otherwise
+------------------------------------------------------------------------------------------------------------------------------------
+
+-- Called from the logic updates of the bots (lua/teamailogic*.lua) while a bot is on an errand. Returns true if the update is dealt with
 function Interact:safe_update(data)
 	if self._failed then
 		return false
@@ -480,6 +547,8 @@ function Interact:update_logic(data)
 		return false
 	end
 
+	-- being at the spot and doing it: what a guard does about the bot is what the defense of the bot is for (not while a pager is answered:
+	-- an answer that is given up calls the police)
 	if errand.state == "working" or errand.state == "guarding" then
 		if errand.kind ~= "pager" and UsefulBots.melee:update(data) then
 			return true
@@ -530,6 +599,7 @@ function Interact:update_logic(data)
 
 	local dis = mvec3_dis(data.m_pos, errand.stand)
 
+	-- a pager is answered even if no way is safe: an alarm is worse
 	if errand.push and not st.route and not (objective and objective.sh_route) and data.t > errand.t0 + self.PUSH_AFTER and data.t >= (st.plan_t or 0) then
 		st.plan_t = data.t + sneak.PLAN_COOLDOWN
 
@@ -545,6 +615,7 @@ function Interact:update_logic(data)
 	end, data, order, errand.stand, dis, order.exposed)
 
 	if routed == nil then
+		-- no way that can be planned: the plain walk of the central update takes over
 		errand.hook_t = nil
 	end
 
@@ -580,6 +651,14 @@ function Interact:plain_move(unit, errand, t)
 	})
 end
 
+------------------------------------------------------------------------------------------------------------------------------------
+-- Doing it
+------------------------------------------------------------------------------------------------------------------------------------
+
+-- The sounds of an interaction (the lines of a pager, the sounds of a drill being fixed, the typing) are played by the player the interaction
+-- is done with, from where that player stands and with its voice. It is the bot that does it: while the game runs an interaction for it, what
+-- the host would say or play is said and played by the bot, from where it stands, with its own voice (its sound is the same kind of
+-- object as the one of a player, that is what makes this work)
 function Interact:with_voice(bot, fn, ...)
 	self._voice_bot = bot
 
@@ -590,6 +669,7 @@ function Interact:with_voice(bot, fn, ...)
 	return unpack(results)
 end
 
+-- The bot that speaks instead of this sound of the host, if one does
 function Interact:voice_bot(sound)
 	local bot = self._voice_bot
 
@@ -631,6 +711,7 @@ function Interact:install_sound()
 		end
 	end
 
+	-- the line a player says while it waits for an interaction to be done is said a while after it started
 	if BaseInteractionExt and not BaseInteractionExt._sh_say_wrapped then
 		BaseInteractionExt._sh_say_wrapped = true
 
@@ -648,6 +729,9 @@ function Interact:install_sound()
 	end
 end
 
+-- The moment a bot actually runs out of ties or body bags (not before): a hint, the same way pointing at a civilian or corpse a bot
+-- is out for already does (check()/check_tie() return that reason, pointer_update() shows it) - this is the same message for when
+-- nobody happened to be pointing at anything when it ran out
 function Interact:supply_hint(unit, what)
 	local ok, err = pcall(function()
 		managers.hud:show_hint({ text = string.format("%s has no %s left", self:name(unit), what), time = 3 })
@@ -660,6 +744,7 @@ function Interact:supply_hint(unit, what)
 	end
 end
 
+-- The progress bar of the bot in the HUD
 function Interact:hud(unit, errand, enabled, success)
 	if not self._hud_failed then
 		local ok, err = pcall(function()
@@ -681,6 +766,7 @@ function Interact:hud(unit, errand, enabled, success)
 	self:label(unit, errand, enabled, success)
 end
 
+-- The ring and what it is that is being done, over the name of the bot in the world: what a player has over its name while it interacts
 function Interact:label(unit, errand, enabled, success)
 	if self._label_failed then
 		return
@@ -747,6 +833,8 @@ function Interact:label(unit, errand, enabled, success)
 	end
 end
 
+-- A civilian is tied the way the game does it for a player (the last branch of IntimitateInteractionExt:interact), but without the cable
+-- ties of the host: the bot has its own
 function Interact:tie_civilian(unit, civ)
 	local actor = self:actor()
 
@@ -780,6 +868,7 @@ function Interact:tie_civilian(unit, civ)
 	return true
 end
 
+-- A bag is picked up the way the game lets a bot pick one up
 function Interact:pickup(unit, errand)
 	local movement = unit:movement()
 	local bag = errand.target
@@ -828,10 +917,12 @@ function Interact:start_work(unit, errand, t)
 	local timer
 
 	if errand.kind == "tie" then
+		-- the speed of the skills of the host, the cable ties are the ones of the bot
 		local multiplier = managers.player:upgrade_value("cable_tie", "interact_speed_multiplier", 1) * managers.player:crew_ability_upgrade_value("crew_interact", 1) * managers.player:toolset_value()
 
 		timer = (tweak_data.interaction.intimidate.timer or 2) * multiplier
 	elseif errand.kind == "bodybag" then
+		-- the speed of the skill of the host, the bags are the ones of the bot
 		local multiplier = managers.player:upgrade_value("player", "corpse_dispose_speed_multiplier", 1) * managers.player:crew_ability_upgrade_value("crew_interact", 1) * managers.player:toolset_value()
 
 		timer = (tweak_data.interaction.corpse_dispose.timer or 2) * multiplier
@@ -850,6 +941,7 @@ function Interact:start_work(unit, errand, t)
 		elseif interacted == false then
 			return self:cancel(unit, "the game does not let it be done now")
 		else
+			-- no timer: it was done right away
 			StreamHeist:log("Stealth errand: %s did %s at once", self:name(unit), errand.id)
 
 			return self:end_errand(unit, errand, "done", true)
@@ -878,6 +970,7 @@ function Interact:start_work(unit, errand, t)
 	end
 end
 
+-- Stopped before it was done (a pager that is given up calls the police, the game does that)
 function Interact:interrupt(unit, errand)
 	local work = errand.work
 
@@ -997,6 +1090,7 @@ function Interact:work_step(unit, errand, t)
 		return self:finish(unit, errand)
 	end
 
+	-- it stays still and low while it works
 	local data = unit:brain()._logic_data
 
 	UsefulBots.sneak:hold_still(data, true)
@@ -1016,6 +1110,7 @@ function Interact:step_errand(unit, errand, t)
 		return self:cancel(unit, "stealth is over")
 	end
 
+	-- (a pager that is being answered is finished: giving it up is an alarm as well)
 	if errand.kind == "pager" and errand.state == "moving" and self:pager_exhausted() then
 		return self:cancel(unit, "the next pager is an alarm, whatever a bot does")
 	end
@@ -1056,16 +1151,19 @@ function Interact:step_errand(unit, errand, t)
 		return self:start_work(unit, errand, t)
 	end
 
+	-- the routes of stealth do the walking while the logic update of the bot is on it, otherwise it is a plain walk
 	if not (errand.hook_t and t < errand.hook_t + 1.5) then
 		self:plain_move(unit, errand, t)
 	end
 end
 
+-- Guarding a group of civilians: the bot stands where it sees them and keeps them down, one bot for the whole group
 function Interact:guard_step(unit, errand, t, whisper)
 	if not whisper or not setting("auto_guard") then
 		return self:cancel(unit, whisper and "guarding is switched off" or "stealth is over")
 	end
 
+	-- the ones that still can call the police: alive and not tied
 	if not errand.check_t or t >= errand.check_t then
 		errand.check_t = t + 0.5
 
@@ -1088,6 +1186,7 @@ function Interact:guard_step(unit, errand, t, whisper)
 
 	local data = unit:brain()._logic_data
 
+	-- watched from wherever the bot currently is, moving between spots or settled at one - cover and patrol, not a freeze
 	if not errand.shout_t or t >= errand.shout_t then
 		errand.shout_t = t + 0.5
 
@@ -1112,12 +1211,14 @@ function Interact:guard_step(unit, errand, t, whisper)
 		return
 	end
 
+	-- something took the bot from its post (a guard it had to deal with): it goes back to the spot it was at
 	if mvec3_dis(pos, errand.stand) > 400 then
 		self:go_watch(unit, errand, t, errand.stand)
 
 		return
 	end
 
+	-- cover and patrol, not one fixed spot: on to another watch spot of the group every so often
 	if t >= errand.patrol_t then
 		local spots = errand.spots or { errand.stand }
 		local next_i = errand.spot_i and errand.spot_i % #spots + 1 or 1
@@ -1132,6 +1233,8 @@ function Interact:guard_step(unit, errand, t, whisper)
 	UsefulBots.sneak:hold_still(data, true)
 end
 
+-- Sends the bot to a watch spot, host side. Clears the hold it had at its last one first: a bot that was told to hold still
+-- while guarding must not still be held while it walks to the next spot, teamaimovement.lua blocks walking while that is set
 function Interact:go_watch(unit, errand, t, spot)
 	errand.state = "moving"
 	errand.t0 = t
@@ -1152,12 +1255,14 @@ function Interact:start_guarding(unit, errand, t)
 	StreamHeist:log("Stealth errand: %s watches %d civilians (moves to another spot in %d s)", self:name(unit), #errand.group, math.floor(errand.patrol_t - t))
 end
 
+-- A civilian of the group that is not down (it got up, or it never was): shouted at, one at a time
 function Interact:guard_shout(unit, errand, t, data)
 	local melee = UsefulBots.melee
 
 	errand.shouts = errand.shouts or {}
 
 	for _, civ in ipairs(errand.group) do
+		-- (the group is only made new every half second, a civilian of it can be gone by now)
 		if alive(civ) and self:civ_logic(civ) ~= "surrender" and melee:can_shout_civilian(civ) then
 			local key = civ:key()
 			local record = errand.shouts[key] or { n = 0, t = 0 }
@@ -1174,6 +1279,10 @@ function Interact:guard_shout(unit, errand, t, data)
 		end
 	end
 end
+
+------------------------------------------------------------------------------------------------------------------------------------
+-- Body bags: the corpse goes, a body bag is what the bot carries
+------------------------------------------------------------------------------------------------------------------------------------
 
 function Interact:bag_corpse(unit, corpse)
 	local movement = unit:movement()
@@ -1201,6 +1310,7 @@ function Interact:bag_corpse(unit, corpse)
 		pcall(ext.set_active, ext, false, true)
 	end
 
+	-- the corpse is taken away the way the game does it, on the other machines the body bag is not carried by a player
 	corpse:set_slot(0)
 	managers.network:session():send_to_peers_synched("remove_corpse_by_id", corpse_data.u_id, false, 1)
 
@@ -1218,6 +1328,7 @@ function Interact:bag_corpse(unit, corpse)
 
 	local actor = self:actor()
 
+	-- one update later: the new unit has to be set up before it is linked
 	call_on_next_update(function()
 		if not alive(unit) or not alive(carry) then
 			return
@@ -1237,6 +1348,10 @@ function Interact:bag_corpse(unit, corpse)
 	return true
 end
 
+------------------------------------------------------------------------------------------------------------------------------------
+-- What the players are doing
+------------------------------------------------------------------------------------------------------------------------------------
+
 function Interact:humans()
 	local list = {}
 
@@ -1249,6 +1364,7 @@ function Interact:humans()
 	return list
 end
 
+-- Is the player busy: in an interaction (on any machine, a player on another one shows in the animation that is synced), using an item, down
 function Interact:human_busy(unit)
 	local movement = unit:movement()
 
@@ -1271,6 +1387,7 @@ function Interact:human_busy(unit)
 	return damage_ext and (damage_ext.need_revive and damage_ext:need_revive() or damage_ext.arrested and damage_ext:arrested() or damage_ext.dead and damage_ext:dead()) and true or false
 end
 
+-- Is nobody there who can do it: every player is busy or too far from pos?
 function Interact:humans_away_or_busy(pos)
 	for _, unit in ipairs(self:humans()) do
 		if not self:human_busy(unit) and mvec3_dis(unit:movement():m_pos(), pos) <= self.PAGER_HUMAN_RANGE then
@@ -1281,6 +1398,7 @@ function Interact:humans_away_or_busy(pos)
 	return true
 end
 
+-- The awake bots that are free for something, nearest to pos first
 function Interact:free_bots(pos, max_dis, allow_guard)
 	local list = {}
 
@@ -1303,6 +1421,11 @@ function Interact:free_bots(pos, max_dis, allow_guard)
 	return list
 end
 
+------------------------------------------------------------------------------------------------------------------------------------
+-- What the bots do on their own
+------------------------------------------------------------------------------------------------------------------------------------
+
+-- What a bot that waits was told to do: done again whenever there is something to do
 function Interact:add_order(unit, target, id)
 	local movement = unit:movement()
 
@@ -1344,6 +1467,7 @@ function Interact:watch_orders(t)
 	end
 end
 
+-- Pagers: the bot that took the guard down (see the chain) or, if no player is there or free, the nearest one
 function Interact:watch_pagers(t)
 	if not setting("auto_pager") or not managers.groupai:state():whisper_mode() then
 		return
@@ -1356,6 +1480,7 @@ function Interact:watch_pagers(t)
 			if ext and ext.tweak_data == "corpse_alarm_pager" and ext:active() and not ext:disabled() and not ext._in_progress then
 				local pos = unit:position()
 
+				-- a pager that belongs to a chain is answered by the bot of the chain
 				if not self.chains[unit:key()] and self:humans_away_or_busy(pos) then
 					local free = self:free_bots(pos, self:range() * 2, true)
 
@@ -1368,12 +1493,14 @@ function Interact:watch_pagers(t)
 	end
 end
 
+-- A bot shouted at a civilian: that civilian is its business (it ties it, it guards it)
 function Interact:on_civ_shout(bot, civ)
 	if alive(civ) then
 		self.civ_owners[civ:key()] = { bot = bot, t = TimerManager:game():time() }
 	end
 end
 
+-- The bot that ties a civilian: the one that made it surrender if it can, otherwise the nearest one that has ties
 function Interact:tie_bot(civ, owner)
 	local function able(unit)
 		if not alive(unit) or unit:movement():downed() or unit:movement():cool() or UsefulBots.bag:active(unit) or unit:movement()._sh_kill then
@@ -1389,17 +1516,21 @@ function Interact:tie_bot(civ, owner)
 		return self:ties_left(unit) > 0
 	end
 
-	if able(owner) then
+	-- the bot that made the civilian surrender is preferred, but only while it is still nearby - without a distance check here at
+	-- all, whichever bot happened to be the owner stayed first choice however far away it had since wandered, which is what sent a
+	-- bot clear across the map for this
+	if able(owner) and mvec3_dis(owner:movement():m_pos(), civ:position()) <= self:range() then
 		return owner
 	end
 
-	for _, entry in ipairs(self:free_bots(civ:position(), self:range() * 2, true)) do
+	for _, entry in ipairs(self:free_bots(civ:position(), self:range(), true)) do
 		if able(entry.unit) then
 			return entry.unit
 		end
 	end
 end
 
+-- Is a bot tying somebody in the group of this civilian already?
 function Interact:tie_busy_near(civ)
 	for _, u_data in pairs(managers.groupai:state():all_AI_criminals()) do
 		local unit = u_data.unit
@@ -1413,6 +1544,8 @@ function Interact:tie_busy_near(civ)
 	return false
 end
 
+-- Civilians that surrendered and wait: tied by the bot that made them surrender, by a bot if no player can do it now, and by a bot
+-- if no player did for a while. The ones that are not tied are guarded (see assign_guards)
 function Interact:watch_civilians(t)
 	local tie, guard = setting("auto_tie"), setting("auto_guard")
 
@@ -1465,6 +1598,7 @@ function Interact:watch_civilians(t)
 	end
 end
 
+-- The groups of civilians: the ones that are close together, around a civilian that waits to be tied. One bot guards a group, not every bot
 function Interact:assign_guards(held, t)
 	if #held == 0 then
 		return
@@ -1513,6 +1647,7 @@ function Interact:guard_group(group, t)
 
 	mvector3.divide(centroid, #group)
 
+	-- it has a guard (the group that changed, civilians that joined, is handed to it)
 	for _, u_data in pairs(managers.groupai:state():all_AI_criminals()) do
 		local unit = u_data.unit
 		local errand = alive(unit) and unit:movement()._sh_errand
@@ -1528,6 +1663,7 @@ function Interact:guard_group(group, t)
 		return
 	end
 
+	-- the bot that shouted at one of them, or the nearest one
 	local owner
 
 	for _, civ in ipairs(group) do
@@ -1564,6 +1700,8 @@ function Interact:guard_group(group, t)
 	self:start(bot, anchor_civ, "guard", "there are civilians that nobody tied", { group = group, anchor = centroid, stand = spots[1], spots = spots })
 end
 
+-- Watch spots for a group: a few spots in shout range of as many of them as possible, with a line of sight, at least 3 m
+-- apart, so a guard has somewhere to move between instead of freezing at one (see guard_step). Best first
 function Interact:guard_spots(centroid, group)
 	local navman = managers.navigation
 	local melee = UsefulBots.melee
@@ -1624,6 +1762,8 @@ function Interact:guard_spots(centroid, group)
 	return #spots > 0 and spots or { self:stand_position(group[1]) }
 end
 
+-- Corpses nobody has bagged: a guard's first, then a civilian's, each left alone while a player is free to do it themselves and
+-- only handed to a bot that is already close by and free
 function Interact:watch_corpses(t)
 	if not setting("auto_bodybag") or not managers.groupai:state():whisper_mode() then
 		return
@@ -1635,21 +1775,59 @@ function Interact:watch_corpses(t)
 		return
 	end
 
-	local civilians = managers.enemy:all_civilians()
 	local guard_corpse, civ_corpse
+	local still_present = {}
 
 	for key, corpse_data in pairs(corpses) do
 		local unit = corpse_data.unit
 
+		-- the pager_grace entry for this corpse (if any) must survive as long as the corpse itself does, not just until it
+		-- becomes ready - clearing it the moment "ready" turns true would reset the timer right back to zero on the very next
+		-- tick, before the corpse has actually been claimed, and it would never become claimable at all
+		still_present[key] = true
+
+		-- confirmed dead - the corpse registry itself should already guarantee this, but it costs nothing to be sure rather than trust it
+		local damage_ext = alive(unit) and unit:character_damage()
+		local dead = damage_ext and damage_ext:dead()
+
+		-- a guard whose pager is still live (unanswered, or somebody - player or bot - is right in the middle of answering it), or that
+		-- only just cleared, is not up for grabs yet: the same wait the bot's own chain (chain_step) already gives a guard it took down
+		-- itself, extended to one a player is handling. A grace period after the pager itself ends (PAGER_GRACE, tracked in
+		-- self.pager_grace) gives the player who was just standing right there answering it first refusal, rather than counting the
+		-- wait as having started the moment the pager went off
 		local brain = unit:brain()
 		local pager_live = brain and brain._alarm_pager_data
+		local ready = true
 
-		if alive(unit) and not self.claims[key] and not pager_live then
-			if civilians[key] then
+		if dead then
+			if pager_live then
+				self.pager_grace[key] = nil
+			else
+				self.pager_grace[key] = self.pager_grace[key] or t
+				ready = t - self.pager_grace[key] >= self.PAGER_GRACE
+			end
+		end
+
+		if dead and not self.claims[key] and not pager_live and ready then
+			-- the civilian tracking table drops a unit the instant it dies, so it cannot be trusted here - the character's own tweak
+			-- table (fixed for its whole life, corpse included) is what CopDamage.is_civilian itself reads, so it is used the same way
+			local tweak_table = unit:base() and unit:base()._tweak_table
+			local is_civ = tweak_table and CopDamage.is_civilian(tweak_table)
+
+			if is_civ then
 				civ_corpse = civ_corpse or unit
 			else
 				guard_corpse = guard_corpse or unit
 			end
+		end
+	end
+
+	-- pager_grace only needs to remember a corpse that still exists (waiting out its grace period, or a fresh pager still live on
+	-- it) - one that stopped existing entirely (bagged, disposed, or simply gone) is dropped so this does not grow for the rest of
+	-- the heist. A corpse that reached "ready" this tick and got claimed the same tick clears out naturally via self.claims instead
+	for key in pairs(self.pager_grace) do
+		if not still_present[key] then
+			self.pager_grace[key] = nil
 		end
 	end
 
@@ -1673,6 +1851,7 @@ function Interact:watch_corpses(t)
 	end
 end
 
+-- Jams: a drill that jammed is fixed by a bot if no player is there or free
 function Interact:watch_seek(t)
 	if not setting("auto_seek") or not managers.groupai:state():whisper_mode() then
 		return
@@ -1696,6 +1875,10 @@ function Interact:watch_seek(t)
 		end
 	end
 end
+
+------------------------------------------------------------------------------------------------------------------------------------
+-- A guard that is taken down: pager, kill (if it was dominated), body bag, stash
+------------------------------------------------------------------------------------------------------------------------------------
 
 function Interact:on_dominate_try(bot, guard)
 	if alive(guard) then
@@ -1745,6 +1928,9 @@ function Interact:chain_step(chain, t)
 		local brain = guard:brain()
 		local is_pager = ext and ext.tweak_data == "corpse_alarm_pager"
 		local ringing = is_pager and ext:active() and not ext._in_progress
+		-- When an answer is complete the game leaves _in_progress set on the unit, it never clears it (only an interrupted one does), so
+		-- that flag alone said "somebody is answering it" for good, and the chain never got past the pager. Somebody answers it if the
+		-- pager is still one, still active, and in progress
 		local answering = is_pager and ext:active() and ext._in_progress
 		local pending = guard:unit_data().has_alarm_pager and brain and brain._alarm_pager_data ~= nil
 		local exhausted, count = self:pager_exhausted()
@@ -1763,10 +1949,12 @@ function Interact:chain_step(chain, t)
 			return
 		end
 
+		-- somebody is answering it, or it has not started to ring yet
 		if answering or pending and t < chain.t0 + self.PAGER_WAIT then
 			return
 		end
 
+		-- no (more) pager: a guard that was dominated is killed next, the body of one that was killed is bagged
 		chain.stage = chain.how == "dominated" and not dead and "kill" or "bag"
 		chain.stage_t = t
 
@@ -1813,6 +2001,7 @@ function Interact:chain_step(chain, t)
 		return
 	end
 
+	-- the body
 	if not dead then
 		self.chains[chain.key] = nil
 
@@ -1827,6 +2016,7 @@ function Interact:chain_step(chain, t)
 		return
 	end
 
+	-- the body is there once the corpse has been registered and the pager (if there was one) is done with
 	local brain = guard:brain()
 
 	if managers.enemy:get_corpse_unit_data_from_key(guard:key()) and not (brain and brain._alarm_pager_data) then
@@ -1853,6 +2043,10 @@ function Interact:watch_chains(t)
 		end
 	end
 end
+
+------------------------------------------------------------------------------------------------------------------------------------
+-- The central update
+------------------------------------------------------------------------------------------------------------------------------------
 
 function Interact:update(t)
 	if self._failed or not Network:is_server() or not managers.groupai then
@@ -1897,11 +2091,17 @@ function Interact:update(t)
 	end
 end
 
+------------------------------------------------------------------------------------------------------------------------------------
+-- Commands from the players
+------------------------------------------------------------------------------------------------------------------------------------
+
+-- Host side: a bot is told to do something
 function Interact:command(bot, target)
 	if not self:enabled() or not alive(bot) or bot:movement():downed() then
 		return false
 	end
 
+	-- only a bot that is masked up (awake in stealth, in a heist that is loud all of them are) takes an order
 	if managers.groupai:state():whisper_mode() and UsefulBots.stealth:enabled() and bot:movement():cool() then
 		return false
 	end
@@ -1918,6 +2118,7 @@ function Interact:command(bot, target)
 	local holding = movement._should_stay and true or false
 	local kind = result == "corpse_dispose" and "bodybag" or result == "carry_pickup" and "pickup" or result == "intimidate" and "tie" or "interact"
 
+	-- a bot that waits does it whenever there is something to do
 	if holding and kind == "interact" and setting("auto_orders") then
 		self:add_order(bot, target, result)
 	end
@@ -1925,6 +2126,7 @@ function Interact:command(bot, target)
 	return self:start(bot, target, kind, holding and "it waits and was told to" or "it was told to", { standing = holding })
 end
 
+-- Called on the machine of the player that gave the command
 function Interact:request(bot, target)
 	if Network:is_server() then
 		return self:command(bot, target)
@@ -1960,6 +2162,7 @@ function Interact:receive_command(sender, data)
 		return
 	end
 
+	-- the sender has to be somewhere near the bot
 	local session = managers.network:session()
 	local peer = session and session:peer(sender)
 	local peer_unit = peer and peer:unit()
@@ -1987,8 +2190,17 @@ if not Interact._net_hooked then
 	end)
 end
 
+------------------------------------------------------------------------------------------------------------------------------------
+-- The pointer: hold the melee key on a bot, aim at what it is to do, tap the melee key
+------------------------------------------------------------------------------------------------------------------------------------
+
+-- Can the bot see it, all the way round (it does not have to face it)? A line from its head to the thing, that no wall is in the way of
 function Interact:bot_sees(bot, target)
 	local from = bot:movement():m_head_pos()
+	-- AI_visibility (tuned for character-to-character sightlines) is what the game itself uses to check whether one unit can see
+	-- another, but it did not reliably block a floor between them - a bot one level up or down could pass as "seen". world_geometry
+	-- (the same mask the wall-stop fix already uses, and that one does stop cleanly at a floor) is checked too now: either one
+	-- blocking counts as not seen
 	local masks = { managers.slot:get_mask("AI_visibility"), managers.slot:get_mask("world_geometry") }
 	local pos = target:position()
 	local points = { Vector3(pos.x, pos.y, pos.z + 40) }
@@ -2019,13 +2231,17 @@ function Interact:bot_sees(bot, target)
 	return false
 end
 
+-- What is aimed at: the interaction nearest to the line of sight. If a bot may not do it (a shaped charge, a saw) but may do one that is next to
+-- it (the lock of that door or safe), the lock is what is aimed at
 function Interact:pointer_aim(ps, bot)
 	local camera = ps._ext_camera
 	local origin, fwd = camera:position(), camera:forward()
 	local best, best_perp
 
+	local carried = bot:movement()._carry_unit
+
 	for _, unit in ipairs(managers.interaction._interactive_units or {}) do
-		if alive(unit) then
+		if alive(unit) and unit ~= carried then
 			local ext = unit:interaction()
 
 			if ext and ext:active() and not ext:disabled() then
@@ -2036,6 +2252,7 @@ function Interact:pointer_aim(ps, bot)
 					local perp = mvec3_dis(rel, fwd * along)
 
 					if perp < self.POINTER_TOLERANCE and (not best_perp or perp < best_perp) and self:bot_sees(bot, unit) then
+						-- what is not for bots is not there for the pointer (no line to it, no hint)
 						local ok, why, hard = self:check(unit, bot)
 
 						if not hard then
@@ -2048,11 +2265,18 @@ function Interact:pointer_aim(ps, bot)
 	end
 
 	if not best then
+		-- nothing aimed at: the line stops at the first wall instead of running through it blind (a found target still draws its line
+		-- straight to it regardless of anything in between - see pointer_brushes(), it is drawn over everything on purpose)
+		-- "report" is NOT used here - every other raycast in this mod that passes it only ever gets true/false back, never a hit
+		-- table, and that mismatch (expecting hit.position from a boolean) is exactly what crashed the game the one time this was
+		-- tried without it
 		local far = origin + fwd * self.POINTER_RANGE
 		local ok, hit = pcall(World.raycast, World, "ray", origin, far, "slot_mask", managers.slot:get_mask("world_geometry"))
 		local hit_table = ok and hit and type(hit) == "table" and hit
 		local aim = hit_table and hit_table.position or far
 
+		-- temporary: the line is being reported far shorter than expected even in the open - this says exactly what it hit,
+		-- or that nothing did and something else is cutting the drawn length short instead
 		if not self._pointer_log_t or TimerManager:game():time() > self._pointer_log_t then
 			local dis = mvector3.distance(origin, aim)
 
@@ -2066,6 +2290,8 @@ function Interact:pointer_aim(ps, bot)
 		return nil, aim
 	end
 
+	-- temporary: rules out a target (not the empty-aim fallback above) being the thing that made the line look short - a real,
+	-- selected interactive unit close by would explain it just as well as a bad raycast would
 	if not self._pointer_target_log_t or TimerManager:game():time() > self._pointer_target_log_t then
 		local dis = mvector3.distance(origin, best:position())
 
@@ -2090,6 +2316,9 @@ function Interact:pointer_hint(text)
 	end
 end
 
+-- Called before the melee input of the player is handled (lua/playerstandard.lua). The game starts a swing the moment the key goes down (a
+-- knife hits at once), so while a bot is in sight the press is held back: let go before the pointer comes up and the swing goes ahead a
+-- frame late, keep holding and the pointer comes up
 function Interact:pointer_input(ps, t, input)
 	if not self:enabled() then
 		return
@@ -2098,6 +2327,7 @@ function Interact:pointer_input(ps, t, input)
 	local pointer = self.pointer
 
 	if pointer then
+		-- the melee key belongs to the pointer: a tap confirms, or takes the pointer away
 		if input.btn_melee_press then
 			self:pointer_confirm(ps)
 		end
@@ -2108,6 +2338,7 @@ function Interact:pointer_input(ps, t, input)
 		return
 	end
 
+	-- the release of a tap that was held back
 	if self._inject_release then
 		self._inject_release = nil
 		input.btn_melee_release = true
@@ -2121,6 +2352,7 @@ function Interact:pointer_input(ps, t, input)
 		input.btn_melee_press = nil
 
 		if t > hold.t0 + 3 and not input.btn_meleet_state then
+			-- lost track of it (the player was in another state): nothing is replayed
 			self._hold = nil
 		elseif input.btn_melee_release or not input.btn_meleet_state then
 			self._hold = nil
@@ -2138,6 +2370,7 @@ function Interact:pointer_input(ps, t, input)
 	end
 
 	if input.btn_melee_press then
+		-- only a bot that is masked up: on one that is not, the melee key is just the melee key
 		local target = ps:sh_get_bot_target(true)
 		local bot = target and target.unit
 
@@ -2173,6 +2406,9 @@ function Interact:pointer_confirm(ps)
 	self.pointer = nil
 end
 
+-- Called every frame while the player is on foot (lua/playerstandard.lua)
+-- The brushes of the pointer: drawn over everything, not behind the walls. The game has the overlay version of its plain colored render
+-- template for that (its VR code swaps the templates for it)
 function Interact:pointer_brushes()
 	if self._brush_ok then
 		return
@@ -2191,6 +2427,7 @@ function Interact:pointer_brushes()
 	end
 end
 
+-- A ring around where the interaction takes place, turned to the player (a few, so that it is thicker)
 function Interact:pointer_ring(brush, pos, camera)
 	local rotation = camera:rotation()
 	local right, up = rotation:x(), rotation:z()
@@ -2213,6 +2450,7 @@ function Interact:pointer_ring(brush, pos, camera)
 	brush:sphere(pos, 4)
 end
 
+-- Called every frame while the player is on foot (lua/playerstandard.lua)
 function Interact:pointer_update(ps, t)
 	local pointer = self.pointer
 
@@ -2249,6 +2487,7 @@ function Interact:pointer_update(ps, t)
 
 	local brush = target and ok and self._brush_ok or self._brush_no
 
+	-- the line, an arrow at the end of it, and a ring where the interaction takes place
 	brush:line(from, aim)
 	brush:cone(aim, aim - dir * 40, 14, 8)
 

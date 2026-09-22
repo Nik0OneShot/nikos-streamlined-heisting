@@ -1,3 +1,13 @@
+-- Useful Bots (https://github.com/segabl/pd2-useful-bots) by Hoppip, ported into Streamlined Heisting.
+--
+-- This file takes over the job of the original mod.lua: settings, helper functions, settings menu and the bit of
+-- networking. The actual behavior lives in the lua/ hook files (teamailogic*.lua, groupaistatebase.lua, ...), the
+-- parts that came from Useful Bots are marked with "useful bots code" comments.
+--
+-- Settings are stored in StreamHeist.settings.useful_bots, so they are saved and loaded together with all other
+-- Streamlined Heisting settings. Two of them (stop_at_player, follow_behavior) are per player: clients send theirs
+-- to the host, so every player's bots follow that player's preferences.
+
 UsefulBots = UsefulBots or {}
 UsefulBots.mod_path = StreamHeist.mod_path
 UsefulBots.NET_ID = "sh_useful_bots"
@@ -5,7 +15,7 @@ UsefulBots.NET_ID = "sh_useful_bots"
 function UsefulBots.get_default_settings()
 	return {
 		no_crouch = false,
-		dominate_enemies = 1,
+		dominate_enemies = 1, -- 1 = yes, 2 = assist only, 3 = no
 		secure_loot = false,
 		mark_specials = true,
 		intimidate_civilians = true,
@@ -17,54 +27,55 @@ function UsefulBots.get_default_settings()
 		save_inspire = true,
 		stop_at_player = false,
 		defend_reviving = true,
-		follow_behavior = 1,
-		wait_tap_mode = 1,
-		wait_release = true,
-		wait_hold_time = 0.5,
-		hold_radius = 10,
-		withdraw_health = 0.5,
-		reload_in_cover = true,
-		stealth_bots = true,
-		stealth_bag_dropoff_range = 12,
-		stealth_bag_stash_range = 12,
-		stealth_hold_time = 0.5,
-		stealth_alert_count = 5,
-		stealth_wait = true,
-		stealth_civ_radius = 15,
-		stealth_wander = true,
-		stealth_routes = true,
-		bot_interact = true,
-		auto_orders = true,
-		auto_pager = true,
-		auto_bodybag = true,
-		auto_tie = true,
-		auto_guard = true,
-		auto_seek = true,
-		auto_range = 12,
-		stealth_walls = true,
-		stealth_doors = true,
-		stealth_no_smash = true,
-		stealth_civ_rush = true,
-		stealth_follow = true,
-		stealth_melee = true,
-		stealth_flank = true,
-		stealth_instant_melee = true,
-		stealth_stay_hidden = true,
-		stealth_call = true,
-		stay_in_room = true,
-		stealth_dash = true,
-		stealth_dash_limit = 0.5,
-		stealth_detection_mul = 0.5,
+		follow_behavior = 1, -- 1 = default, 2 = close, 3 = medium, 4 = far
+		wait_tap_mode = 1, -- what tapping the wait key does, 1 = cover and patrol, 2 = stationary
+		wait_release = true, -- tapping the wait key on a bot that waits releases it: it follows again, without being called
+		wait_hold_time = 0.5, -- seconds the wait key has to be held to make a bot stay exactly where it is
+		hold_radius = 10, -- meters, area of a bot on cover and patrol
+		withdraw_health = 0.5, -- bots on cover and patrol withdraw and wait for regeneration below this
+		reload_in_cover = true, -- bots reload in the nearest cover if enemies are nearby
+		stealth_bots = true, -- hold follow on a bot in stealth to wake it, hold wait to send it to sleep, awake bots hold fire
+		stealth_bag_dropoff_range = 12, -- meters; 0 = none, 101 = mapwide
+		stealth_bag_stash_range = 12, -- meters; 0 = none, 101 = mapwide
+		stealth_hold_time = 0.5, -- seconds the follow key has to be held to wake a bot
+		stealth_alert_count = 5, -- awake bots hold fire in stealth until this many enemies are alerted (or police called, camera alarm)
+		stealth_wait = true, -- awake bots that wait in stealth keep civilians down, hide and avoid being seen
+		stealth_civ_radius = 15, -- meters around the wait spot in which they do that
+		stealth_wander = true, -- hiding bots that wait move on to other spots nobody sees, now and then (only where they still can keep civilians down)
+		stealth_routes = true, -- a following bot that is held up looks at up to 5 routes and takes the least noticed one
+		bot_interact = true, -- hold the melee key on a bot and point it at an interaction to have it done (never one that needs a deployable, a weapon or equipment)
+		auto_orders = true, -- a bot that waits does again what it was told to do (fixing a drill, ...) whenever there is something to do
+		auto_pager = true, -- bots answer the pagers of the guards they took down, and the ones no player can answer right now
+		auto_bodybag = true, -- a guard a bot dominated is killed once its pager is answered, the body is bagged and left where nobody finds it
+		auto_tie = true, -- bots tie the civilians they made surrender, and the ones no player ties (4 cable ties, 8 with the skill that gives more)
+		auto_guard = true, -- one bot guards a group of civilians nobody tied, so that none of them gets up and calls the police
+		auto_seek = true, -- bots fix drills that jammed while no player is there or free
+		auto_range = 12, -- meters around its spot that a waiting bot goes for something to do, and how far the bots that seek something reach
+		stealth_walls = true, -- bags are only left, and thrown, where humans can get to: not out of bounds, beyond an invisible wall
+		stealth_doors = true, -- routes, hiding places and stashes only use ways a bot can go: no shut door, a leg that fails is learned and the way around is looked for
+		stealth_no_smash = true, -- in stealth the bots do not use windows and vaults that would smash glass
+		stealth_civ_rush = true, -- the nearest bot is sent at a civilian whose call to the police is due, whatever it is doing and whoever may see it
+		stealth_follow = true, -- awake bots that follow you in stealth avoid being seen
+		stealth_melee = true, -- awake bots dominate alerted guards that are about to fire, charge and melee them if that fails, and melee guards that come up to them
+		stealth_flank = true, -- if nobody can dominate a guard that is about to fire, a bot it has not noticed goes around it and dominates it from behind
+		stealth_instant_melee = true, -- the melee of an awake bot kills at once while the heist is quiet
+		stealth_stay_hidden = true, -- a bot that hid after being noticed stays there until it is safe to leave, the place is compromised or it is called
+		stealth_call = true, -- an awake bot that is called in stealth runs to where you stood if nobody is going to notice it in time
+		stay_in_room = true, -- bots that hold a position stay in the room (nav segment) of the wait spot
+		stealth_dash = true, -- awake bots run through the view of observers if they get across before they are noticed
+		stealth_dash_limit = 0.5, -- how far observers may get with noticing during such a dash (1 = noticed), lower is safer
+		stealth_detection_mul = 0.5, -- how fast bots build up notice against them, compared to a player doing the exact same thing (1 = the
+		-- same, lower is slower - bots do not have the reflexes or awareness a player does, this gives them a little help)
 		revive_distance = 25,
 		drop_bag_percentage = 0.25,
 		targeting_priority = {
-			base_priority = 1,
+			base_priority = 1, -- 1 = by weapon stats, 2 = by distance, 3 = vanilla
 			player_aim = 1.5,
 			critical = 2,
 			marked = 1.5,
 			defend = 1.5,
 			domination = 2,
-			enemies = {
+			enemies = { -- multipliers for specific enemy types
 				marshal_marksman = 1,
 				marshal_shield = 1,
 				medic = 2,
@@ -84,9 +95,11 @@ function UsefulBots.get_default_settings()
 	}
 end
 
+-- The settings table has to exist before the saved settings are loaded (see mod.lua), otherwise they'd be dropped
 StreamHeist.settings.useful_bots = StreamHeist.settings.useful_bots or UsefulBots.get_default_settings()
 UsefulBots.settings = StreamHeist.settings.useful_bots
 
+-- Settings of every player, index 1 is the host. Players that never sent anything use the defaults
 UsefulBots.peer_settings = setmetatable({
 	[1] = UsefulBots.settings
 }, {
@@ -97,6 +110,7 @@ UsefulBots.peer_settings = setmetatable({
 })
 
 
+-- Helper functions
 
 function UsefulBots:get_assist_SO(unit)
 	return {
@@ -171,6 +185,8 @@ function UsefulBots:player_settings(player_unit)
 end
 
 
+-- Networking, clients tell the host about their per player settings
+
 function UsefulBots:send_settings()
 	if Network:is_server() or not LuaNetworking or not LuaNetworking.SendToPeer or not (managers.network and managers.network:session()) then
 		return
@@ -224,10 +240,12 @@ if not UsefulBots._net_hooked then
 end
 
 
+-- Settings menu, called from the menu hook in mod.lua before the main menu is built
 
 function UsefulBots:update_menu_state()
 	local enabled = self.settings.targeting_priority.base_priority <= 2
 
+	-- All priority settings do nothing if the base targeting is set to vanilla, domination is part of the custom targeting
 	for _, item in pairs(self._priority_items or {}) do
 		if item.set_enabled then
 			item:set_enabled(enabled)
@@ -251,6 +269,7 @@ function UsefulBots:create_menu(parent_menu_id, nodes, priority)
 		return mod and mod:IsEnabled() or false
 	end
 
+	-- These features are handled by Keepers/Monkeepers if they are installed
 	local keepers = mod_enabled("Keepers")
 	local monkeepers = mod_enabled("Monkeepers")
 
@@ -279,6 +298,7 @@ function UsefulBots:create_menu(parent_menu_id, nodes, priority)
 		UsefulBots.settings[item:name()] = round(item:value(), 2)
 	end
 
+	-- slider shows 0-100, setting is stored as 0-1
 	function MenuCallbackHandler:sh_ub_slider_percent(item)
 		UsefulBots.settings[item:name()] = round(item:value() / 100, 2)
 	end
@@ -353,6 +373,7 @@ function UsefulBots:create_menu(parent_menu_id, nodes, priority)
 
 	local vanilla_targeting = priority_settings.base_priority > 2
 
+	-- Enemy specific multipliers
 	local enemies = {
 		{ "marshal_marksman", "ene_male_marshal_marksman" },
 		{ "marshal_shield", "ene_male_marshal_shield" },
@@ -392,6 +413,7 @@ function UsefulBots:create_menu(parent_menu_id, nodes, priority)
 		})
 	end
 
+	-- Targeting priority
 	add_choice(menu_id_targeting, "base_priority", { "sh_ub_weapon_stats", "sh_ub_distance", "sh_ub_no_changes" }, 100, priority_settings.base_priority, "sh_ub_base_priority")
 	add_divider(menu_id_targeting, 99)
 
@@ -410,6 +432,7 @@ function UsefulBots:create_menu(parent_menu_id, nodes, priority)
 		priority = 89
 	})
 
+	-- Main menu
 	self._menu_items.dominate_enemies = add_choice(menu_id, "dominate_enemies", { "dialog_yes", "sh_ub_assist_only", "dialog_no" }, 99, settings.dominate_enemies, "sh_ub_choice", vanilla_targeting)
 	add_toggle("secure_loot", 98, monkeepers)
 	add_toggle("mark_specials", 97)
@@ -481,10 +504,12 @@ function UsefulBots:create_menu(parent_menu_id, nodes, priority)
 		priority = 75
 	})
 
+	-- The sub menus have to be built before the menus that link to them
 	nodes[menu_id_enemies] = MenuHelper:BuildMenu(menu_id_enemies, { back_callback = "sh_save" })
 	nodes[menu_id_targeting] = MenuHelper:BuildMenu(menu_id_targeting, { back_callback = "sh_save" })
 	nodes[menu_id] = MenuHelper:BuildMenu(menu_id, { back_callback = "sh_save" })
 
+	-- Link from the Streamlined Heisting menu
 	MenuHelper:AddButton({
 		id = "useful_bots",
 		title = "sh_ub_menu",
@@ -498,18 +523,26 @@ function UsefulBots:create_menu(parent_menu_id, nodes, priority)
 end
 
 
+-- Hold modes for the wait command
 StreamHeist:require("bot_hold")
 
+-- Reload in cover
 StreamHeist:require("bot_reload")
 
+-- Stealth commands
 StreamHeist:require("bot_stealth")
 
+-- Ways the bots may go: no shut doors, no glass to smash in stealth
 StreamHeist:require("bot_nav")
 
+-- Stealth behavior of waiting bots and marking
 StreamHeist:require("bot_sneak")
 
+-- Player-ordered stealth bag delivery
 StreamHeist:require("bot_bag")
 
+-- Stealth defense: dominate, charge and melee
 StreamHeist:require("bot_melee")
 
+-- Interactions: the ones bots are pointed at, the ones they do while they wait, pagers, and the guards they took down
 StreamHeist:require("bot_interact")

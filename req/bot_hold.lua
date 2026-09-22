@@ -1,3 +1,22 @@
+-- Team AI hold modes, used by the wait command (see lua/teamailogicidle.lua, lua/coplogicattack.lua, lua/playerstandard.lua)
+--
+-- "patrol": the bot keeps to the area around the spot it was told to wait at. While nothing is going on it roams from
+--           cover to cover inside that area, in a fight it takes cover inside the area, and when its health gets low
+--           it withdraws and stays where it is until it has regenerated, then goes back to its spot.
+-- "stationary": the bot stays exactly where it is, this is what the plain Useful Bots hold objective already does.
+--
+-- The behavior is modeled after the "use cover" and "patrol" modes of Keepers by TdlQ, the code itself is written from scratch.
+--
+-- Space: patrol spots are not only the cover points of the level (a small room can have none) but "posts", spots that are worked
+-- out from the nav segments themselves (see Hold:seg_posts). The room of a bot is one nav segment, or more if that one is too
+-- small to walk around in (see Hold:build_region), so a closet, an office or a narrow passage is used like a big hall.
+-- Everything here runs on the host. The state lives on the bot's TeamAIMovement:
+--   _should_stay / _should_stay_pos   vanilla flag and the anchor of the area (set by the wait command, see Useful Bots)
+--   _sh_hold_mode                     "patrol", "stationary" or nil
+--   _sh_spot                          the spot the bot is currently patrolling to or standing at (patrol only)
+--   _sh_next_patrol_t                 when the bot should leave its current spot again
+--   _sh_withdrawing                   only used to log health transitions
+
 UsefulBots.hold = UsefulBots.hold or {}
 
 local Hold = UsefulBots.hold
@@ -5,21 +24,26 @@ Hold.NET_ID = "sh_wait_hold"
 Hold.MODE_PATROL = "patrol"
 Hold.MODE_STATIONARY = "stationary"
 
-Hold.POST_SAMPLES = 14 
-Hold.POST_GAP = 150 
-Hold.POST_DOOR = 120 
-Hold.REGION_MIN_POSTS = 5 
+Hold.POST_SAMPLES = 14 -- random spots looked at in every nav segment
+Hold.POST_GAP = 150 -- posts are at least this far apart
+Hold.POST_DOOR = 120 -- and this far from a door (a bot that stands in a doorway is in the way)
+Hold.REGION_MIN_POSTS = 5 -- a room with fewer posts than this is too small to walk around in: its nearest neighbours join it
 Hold.REGION_MAX_SEGS = 6
-Hold.SPOT_TOLERANCE = 130 
+Hold.SPOT_TOLERANCE = 130 -- a bot this close to its spot is at its spot
 
 local mvec3_dis_sq = mvector3.distance_sq
 local mvec3_dis = mvector3.distance
 local tmp_vec = Vector3()
 
+
+-- State
+
 function Hold:radius()
 	return UsefulBots.settings.hold_radius * 100
 end
 
+-- The room of a bot that waits: the game has exactly one area per nav segment, so the nav segment of the wait spot is
+-- the room. Patrol spots, cover and hiding spots have to be inside it. nil means no restriction (setting is off).
 function Hold:anchor_room(movement)
 	return self:region(movement)
 end
@@ -31,6 +55,7 @@ function Hold:in_room(room, pos)
 
 	local seg = managers.navigation:get_nav_seg_from_pos(pos, true)
 
+	-- a region (a set of nav segments), or a single nav segment
 	if type(room) == "table" then
 		return room.segs[seg] == true
 	end
@@ -38,6 +63,9 @@ function Hold:in_room(room, pos)
 	return seg == room
 end
 
+-- Space
+
+-- The caches belong to the level: the navigation manager is a new one in every heist
 function Hold:check_caches()
 	if self._nav_ref ~= managers.navigation then
 		self._nav_ref = managers.navigation
@@ -45,6 +73,8 @@ function Hold:check_caches()
 	end
 end
 
+-- How enclosed a spot is: the share of 8 rays at head height that hit something within 3.5 m. A corner or a spot along a wall
+-- is a better place to stand (and to hide) than the middle of a room
 function Hold:enclosure(pos)
 	local mask = managers.slot:get_mask("AI_visibility")
 	local from = Vector3(pos.x, pos.y, pos.z + 100)
@@ -64,6 +94,8 @@ function Hold:enclosure(pos)
 	return blocked / 8
 end
 
+-- The posts of a nav segment: spots in it where a bot can stand, patrol to and hide, the nice ones (enclosed, real cover points
+-- count double) first. They do not change, so they are worked out once
 function Hold:seg_posts(seg)
 	self:check_caches()
 
@@ -131,6 +163,8 @@ function Hold:seg_posts(seg)
 	return posts
 end
 
+-- The room of a bot: the nav segment of its wait spot, and if that has too few posts to walk around (a closet, a corner of an
+-- office, a narrow passage) the nearest neighbouring segments as well, until there is room enough
 function Hold:build_region(anchor)
 	local navman = managers.navigation
 	local main = navman:get_nav_seg_from_pos(anchor, true)
@@ -171,6 +205,8 @@ function Hold:build_region(anchor)
 	return region
 end
 
+-- The room of a bot that waits, nil if bots may leave their room (setting) or it has no wait spot. The anchor is replaced (not
+-- changed) with every wait command
 function Hold:region(movement)
 	local anchor = movement._should_stay_pos
 
@@ -187,6 +223,7 @@ function Hold:region(movement)
 		local success, region = pcall(self.build_region, self, anchor)
 
 		if not success then
+			-- no posts to count then: the room is the nav segment of the wait spot, as it always was
 			StreamHeist:error("Could not work out the room of a bot, it is one nav segment: %s", tostring(region))
 
 			local main = managers.navigation:get_nav_seg_from_pos(anchor, true)
@@ -199,6 +236,7 @@ function Hold:region(movement)
 	return movement._sh_region
 end
 
+-- What a bot patrols: its room, or with the room limit off the nav segments around the wait spot
 function Hold:area(movement)
 	local region = self:region(movement)
 	if region then
@@ -228,6 +266,7 @@ function Hold:area(movement)
 		local reach = self:radius() + 500
 		local i = 1
 
+		-- every neighbour that is close enough, from the wait spot outwards
 		while i <= #area.list and #area.list < 10 do
 			for neighbour in pairs(navman:get_nav_seg_neighbours(area.list[i]) or {}) do
 				local data = navman:get_nav_seg_metadata(neighbour)
@@ -247,6 +286,7 @@ function Hold:area(movement)
 	return movement._sh_area
 end
 
+-- All the posts of the area of a bot that are inside its radius
 function Hold:area_posts(movement)
 	local area = self:area(movement)
 	if not area then
@@ -268,6 +308,8 @@ function Hold:area_posts(movement)
 	return posts
 end
 
+-- The posts of the area, or none if working them out fails (used by the stealth code, where an error would switch all of the
+-- sneaking off): it is logged once and the bots go on without posts
 function Hold:safe_area_posts(movement)
 	if self._posts_failed then
 		return {}
@@ -285,6 +327,7 @@ function Hold:safe_area_posts(movement)
 	return {}
 end
 
+-- The posts of one nav segment, none if working them out fails (see safe_area_posts)
 function Hold:safe_seg_posts(seg)
 	if self._posts_failed then
 		return {}
@@ -302,6 +345,7 @@ function Hold:safe_seg_posts(seg)
 	return {}
 end
 
+-- A spot another bot is going to or standing at
 function Hold:is_taken(unit, pos)
 	for _, u_data in pairs(managers.groupai:state():all_AI_criminals()) do
 		local other = u_data.unit
@@ -318,6 +362,7 @@ function Hold:is_taken(unit, pos)
 	return false
 end
 
+-- Spots a bot could not get to are not tried again for a while
 function Hold:mark_bad_spot(movement, pos, t)
 	movement._sh_bad = movement._sh_bad or {}
 
@@ -363,6 +408,7 @@ function Hold:is_patrolling(data)
 		return false
 	end
 
+	-- in stealth the wait behavior is up to the stealth code (req/bot_sneak.lua)
 	if UsefulBots.sneak and UsefulBots.sneak:active_for(data.unit) then
 		return false
 	end
@@ -375,6 +421,10 @@ function Hold:is_withdrawing(data)
 	return self:is_patrolling(data) and data.unit:character_damage():health_ratio() < UsefulBots.settings.withdraw_health
 end
 
+
+-- Commands
+
+-- Tapping the wait key, the position itself is handled by Useful Bots (set_should_stay)
 function Hold:on_wait_tap(unit, tap_mode)
 	local mode = tap_mode == 2 and self.MODE_STATIONARY or self.MODE_PATROL
 
@@ -383,6 +433,9 @@ function Hold:on_wait_tap(unit, tap_mode)
 	StreamHeist:log("Wait tap: %s goes into %s mode", self:bot_name(unit), mode)
 end
 
+-- Holding the wait key, host side. Works whether or not the bot was waiting already (patrolling included).
+-- A bot that is already waiting stays at the spot it is heading to or standing at. A bot that is following goes to the
+-- position of the commanding player if that player uses "Stop at player" (like a tap does) and stays where it is otherwise.
 function Hold:set_stationary(unit, commander_unit)
 	if not alive(unit) then
 		return
@@ -413,6 +466,9 @@ function Hold:set_stationary(unit, commander_unit)
 	StreamHeist:log("Wait hold: %s stays at its spot", self:bot_name(unit))
 end
 
+-- Tapping the wait key on a bot that waits: it follows again, the way it always does. It is not called: it does not walk to where the player
+-- stands, and its bag order (if it has one) is not cancelled, that is what the follow key does. The hooks of set_should_stay do the rest (the
+-- hold mode is forgotten and the bot gets its follow objective again). Host side. Returns true if that is what the tap did
 function Hold:unhold(unit)
 	if UsefulBots.settings.wait_release == false or not alive(unit) then
 		return false
@@ -431,6 +487,7 @@ function Hold:unhold(unit)
 	return true
 end
 
+-- Holding the wait key, called on the machine of the player that did it
 function Hold:request_stationary(unit)
 	if Network:is_server() then
 		self:set_stationary(unit, managers.player:player_unit())
@@ -463,6 +520,7 @@ function Hold:receive_request(sender, data)
 		return
 	end
 
+	-- the sender has to be somewhere near the bot
 	local session = managers.network:session()
 	local peer = session and session:peer(sender)
 	local peer_unit = peer and peer:unit()
@@ -483,6 +541,11 @@ if not Hold._net_hooked then
 	end)
 end
 
+
+-- Cover
+
+-- Nearest cover around the bot that is at most radius away from center (and inside the room, if given), optionally
+-- protecting from the given threat
 function Hold:find_cover_within(data, threat_pos, center, radius, room)
 	local radius_sq = radius * radius
 	local max_dis = math.min(radius, 800)
@@ -492,6 +555,8 @@ function Hold:find_cover_within(data, threat_pos, center, radius, room)
 		return cover and mvec3_dis_sq(cover[1], center) <= radius_sq and self:in_room(room, cover[1])
 	end
 
+	-- the covers of the room itself (a room is one nav segment or a few): the cover nearest to the bot can be on the other side
+	-- of a wall, which is no use to it
 	if type(room) == "table" and not self._room_cover_failed then
 		local success, cover = pcall(navman.find_cover_in_nav_seg_3, navman, room.segs, radius, data.m_pos, threat_pos)
 
@@ -503,6 +568,7 @@ function Hold:find_cover_within(data, threat_pos, center, radius, room)
 		end
 	end
 
+	-- the nearest to the bot is not necessarily inside the room, so with a room also look around the center
 	for _, from in ipairs(room and { data.m_pos, center } or { data.m_pos }) do
 		local cover = navman:find_cover_near_pos_1(from, threat_pos, max_dis, 0, false)
 		if acceptable(cover) then
@@ -516,6 +582,7 @@ function Hold:find_cover_within(data, threat_pos, center, radius, room)
 	end
 end
 
+-- Nearest cover inside the area (and room) of a bot on cover and patrol
 function Hold:find_cover(data, threat_pos)
 	local movement = data.unit:movement()
 	local anchor = movement._should_stay_pos
@@ -525,6 +592,7 @@ function Hold:find_cover(data, threat_pos)
 	end
 end
 
+-- Cover selection during a fight, replaces the original when a patrolling bot is in combat. Returns true if handled
 function Hold:update_cover(data)
 	local my_data = data.internal_data
 	local focus_enemy = data.attention_obj
@@ -560,6 +628,7 @@ function Hold:update_cover(data)
 
 		StreamHeist:log("%s takes cover %.1f m from its anchor", self:bot_name(data.unit), mvector3.distance(cover[1], anchor) / 100)
 	else
+		-- not every fight, at most every 10 seconds per bot
 		local movement = data.unit:movement()
 		if not movement._sh_no_cover_log_t or data.t > movement._sh_no_cover_log_t then
 			movement._sh_no_cover_log_t = data.t + 10
@@ -570,6 +639,9 @@ function Hold:update_cover(data)
 	return true
 end
 
+
+-- Patrol
+
 function Hold:pick_patrol_spot(data)
 	local movement = data.unit:movement()
 	local anchor = movement._should_stay_pos
@@ -579,6 +651,7 @@ function Hold:pick_patrol_spot(data)
 		return nil, 0
 	end
 
+	-- a step is as long as the room allows: half the way to the farthest post, 1 to 2.5 m
 	local extent = 0
 	for _, post in ipairs(posts) do
 		extent = math.max(extent, mvec3_dis(post.pos, anchor))
@@ -591,6 +664,7 @@ function Hold:pick_patrol_spot(data)
 
 		for _, post in ipairs(posts) do
 			if math.abs(post.pos.z - anchor.z) < 200 and mvec3_dis(post.pos, data.m_pos) > min_dis and not self:is_bad_spot(movement, post.pos) and not self:is_taken(data.unit, post.pos) then
+				-- enclosed spots are picked more often, all of them are picked sometimes
 				local weight = 0.3 + post.score
 
 				table.insert(list, { pos = post.pos, weight = weight })
@@ -635,6 +709,7 @@ function Hold:go_to(data, pos, is_new_spot)
 	TeamAILogicBase._exit(data.unit, "travel")
 end
 
+-- Called from the idle logic update. Returns true if the logic was left, the original update must not run then
 function Hold:update_idle(data)
 	if self._patrol_failed then
 		return
@@ -666,6 +741,7 @@ function Hold:update_idle_now(data)
 		return
 	end
 
+	-- hurt bots stay where they are until they have regenerated
 	if unit:character_damage():health_ratio() < UsefulBots.settings.withdraw_health then
 		if not movement._sh_withdrawing then
 			movement._sh_withdrawing = true
@@ -683,6 +759,7 @@ function Hold:update_idle_now(data)
 		StreamHeist:log("%s patrols %d nav segment(s) with %d posts", self:bot_name(unit), #area.list, #self:area_posts(movement))
 	end
 
+	-- give up on a spot that can not be reached and go back to the anchor
 	if data.path_fail_t and data.t - data.path_fail_t < 6 then
 		if movement._sh_spot then
 			StreamHeist:log("%s can not get to its spot, it is not used for a while", self:bot_name(unit))
@@ -693,8 +770,11 @@ function Hold:update_idle_now(data)
 		return
 	end
 
+	-- displaced, for example after taking cover in a fight or by a crowd of civilians and hostages
 	local spot = movement._sh_spot or movement._should_stay_pos
 	if mvec3_dis_sq(data.m_pos, spot) > self.SPOT_TOLERANCE ^ 2 then
+		-- told to go there again and again, a moment apart, and it does not get there: something stands in the way. It stays where
+		-- it is then and the spot is not used for a while
 		if movement._sh_go_t and data.t < movement._sh_go_t + 3 then
 			return
 		end
@@ -733,6 +813,7 @@ function Hold:update_idle_now(data)
 	if not new_spot then
 		movement._sh_next_patrol_t = data.t + 4
 
+		-- once in a while, not every few seconds
 		if not movement._sh_no_post_log_t or data.t > movement._sh_no_post_log_t then
 			movement._sh_no_post_log_t = data.t + 30
 			StreamHeist:log("%s has nowhere to patrol to (%d posts in its area)", self:bot_name(unit), posts or 0)
