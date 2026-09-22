@@ -26,6 +26,7 @@
 
 				<group :hook_id="mission/">
 					<post :hook_id="elementareatrigger"/>
+					<post :hook_id="elementmissionend"/>
 					<post :hook_id="elementspawnenemydummy"/>
 					<post :hook_id="elementspawnenemygroup"/>
 					<post :hook_id="elementspecialobjective"/>
@@ -66,15 +67,19 @@
 			<group :hook_id="units/">
 				<group :hook_id="beings/player/">
 					<group :hook_id="states/">
+						<post :hook_id="playerbleedout"/>
 						<post :hook_id="playerdriving"/>
+						<post :hook_id="playerstandard"/>
 						<post :hook_id="playertased"/>
 					</group>
+					<post :hook_id="huskplayermovement"/>
 					<post :hook_id="playerdamage"/>
 					<post :hook_id="playermovement"/>
 					<post :hook_id="playerinventory"/>
 				</group>
 
 				<post :hook_id="characters/characterattentionobject"/>
+				<post :hook_id="contourext"/>
 
 				<group :hook_id="civilians/">
 					<group :hook_id="logics/">
@@ -91,6 +96,7 @@
 					<post :hook_id="boss/logics/bosslogicattack"/>
 
 					<group :hook_id="cop/">
+						<post :hook_id="actions/full_body/copactionact"/>
 						<post :hook_id="actions/full_body/copactionhurt"/>
 
 						<group :hook_id="actions/lower_body/">
@@ -99,6 +105,7 @@
 						</group>
 
 						<group :hook_id="actions/upper_body/">
+							<post :hook_id="copactionreload"/>
 							<post :hook_id="copactionshoot"/>
 							<post :hook_id="copactiontase"/>
 						</group>
@@ -149,10 +156,14 @@
 					<post :hook_id="sentrygundamage"/>
 				</group>
 
+				<post :hook_id="interactions/interactionext"/>
+
 				<group :hook_id="player_team/">
 					<post :hook_id="actions/lower_body/criminalactionwalk"/>
 					<post :hook_id="logics/teamailogicassault"/>
+					<post :hook_id="logics/teamailogicbase"/>
 					<post :hook_id="logics/teamailogicidle"/>
+					<post :hook_id="logics/teamailogictravel"/>
 					<post :hook_id="teamaidamage"/>
 					<post :hook_id="teamaimovement"/>
 					<post :hook_id="teamaibrain"/>
@@ -161,8 +172,11 @@
 
 				<group :hook_id="props/">
 					<post :hook_id="carrydata"/>
+					<post :hook_id="securitycamera"/>
 					<post :hook_id="timergui"/>
 				</group>
+
+				<post :hook_id="vehicles/vehicledrivingext"/>
 
 				<group :hook_id="weapons/">
 					<group :hook_id="grenades/">
@@ -172,6 +186,7 @@
 					<post :hook_id="akimboweaponbase"/>
 					<post :hook_id="newnpcraycastweaponbase"/>
 					<post :hook_id="npcraycastweaponbase"/>
+					<post :hook_id="projectiles/projectilebase"/>
 					<post :hook_id="raycastweaponbase"/>
 				</group>
 			</group>

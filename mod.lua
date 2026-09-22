@@ -207,10 +207,20 @@ if not StreamHeist then
 			table.insert(faction_menu_elements, menu_element)
 		end
 
+		MenuHelper:AddDivider({
+			menu_id = menu_id,
+			size = 16,
+			priority = 95
+		})
+
+		UsefulBots:create_menu(menu_id, nodes, 94)
+
 		nodes[menu_id_faction_tweaks] = MenuHelper:BuildMenu(menu_id_faction_tweaks, { back_callback = "sh_save" })
 		nodes[menu_id] = MenuHelper:BuildMenu(menu_id, { back_callback = "sh_save" })
 		MenuHelper:AddMenuItem(nodes["blt_options"], menu_id, "sh_menu_main")
 	end)
+
+	StreamHeist:require("useful_bots")
 
 	-- Load settings
 	if io.file_is_readable(StreamHeist.save_path) then

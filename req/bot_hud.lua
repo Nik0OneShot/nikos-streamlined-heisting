@@ -1,22 +1,9 @@
 -- claude code
 
--- Team a.i HUD core: shared logic, loaded once by the hook scripts that use it (StreamHeist:require("bot_hud")).
--- Hook scripts: hudteammate, hudmanager, criminalsmanager, newnpcraycastweaponbase, unitnetworkhandler.
--- ---------------------------------------------------------------------------------------------------------------
--- Team a.i HUD: health radial, armor radial as a regen timer, and a magazine count on the bot's teammate panel.
---
--- Host:   reads the real state (TeamAIDamage health/regen timers, the weapon's real clip) every frame, updates its
---         own HUD and sends health + regen timing (only on change + a heartbeat) through LuaNetworking, but only to
---         peers that said hello, i.e. that run this mod. Everyone else is left alone.
--- Client: says hello to the host, renders from the host's messages and counts bot shots locally (see
---         newnpcraycastweaponbase.lua), correcting the count on every reload. Without the mod on the host there is no
---         health/regen data, so bots keep vanilla's full ring; ammo and colours don't need the host.
--- ---------------------------------------------------------------------------------------------------------------
 StreamHeist.bot_hud = StreamHeist.bot_hud or {}
 
 local BotHUD = StreamHeist.bot_hud
 
--- use the mod's logger, logging is on when mods/developer.txt exists
 BotHUD.logging = StreamHeist.logging
 
 function BotHUD:log(str, ...)
@@ -31,9 +18,6 @@ function BotHUD:error(str, ...)
 	StreamHeist:error("[BotHUD] " .. str, ...)
 end
 
--- ---------------------------------------------------------------------------------------------------------------
--- HUD mod compatibility (see compat.lua)
--- ---------------------------------------------------------------------------------------------------------------
 BotHUD.active = true
 BotHUD.GLOBAL_CHECK_INTERVAL = 5
 
@@ -44,7 +28,6 @@ if not (ok and type(rules) == "table") then
 	BotHUD:warn("couldn't load req/bot_hud_compat.lua: %s", tostring(rules))
 end
 
--- stop everything: hooks that are already installed check `active`, scripts that load later return right away
 function BotHUD:deactivate(reason)
 	if self.active then
 		self.active = false
@@ -54,7 +37,6 @@ function BotHUD:deactivate(reason)
 	end
 end
 
--- returns the label of a listed HUD mod that is enabled, and what gave it away
 function BotHUD:_find_listed_hud()
 	local hud_like = {}
 
@@ -73,7 +55,6 @@ function BotHUD:_find_listed_hud()
 					local matches = false
 
 					if rule.exact then
-						-- exact BLT name or id (for short names like "MUI" that would match half the mod list as a substring)
 						for _, exact in ipairs(rule.exact) do
 							matches = matches or name == exact or id == exact
 						end
@@ -108,7 +89,6 @@ function BotHUD:_find_listed_hud()
 	self:log("enabled mods that look like HUD/UI mods (add a rule to compat.lua if one of them already shows bot health): %s", #hud_like > 0 and table.concat(hud_like, ", ") or "none")
 end
 
--- the global check again while playing, for HUD mods that define their globals late
 function BotHUD:_recheck_globals(now)
 	if self._globals_t and now - self._globals_t < self.GLOBAL_CHECK_INTERVAL then
 		return
@@ -127,7 +107,6 @@ function BotHUD:_recheck_globals(now)
 	end
 end
 
--- says which known HUD is probably behind panels that aren't vanilla's
 function BotHUD:hud_hint()
 	if HUDManager and HUDManager.CUSTOM_TEAMMATE_PANELS then
 		return ", VanillaHUD Plus' Custom HUD (HUDTYPE 3) builds its own panels"
@@ -140,7 +119,6 @@ function BotHUD:hud_hint()
 	return ", another HUD mod probably replaced them"
 end
 
--- does a teammate panel have the parts this mod changes? Other HUD mods rebuild HUDTeammate with a different layout
 function BotHUD:check_panel(panel)
 	local function child_of(parent, name)
 		if parent and alive(parent) then
@@ -177,7 +155,6 @@ if listed_rule then
 	BotHUD.disabled_by_compat = true
 	BotHUD.inactive_reason = listed_rule.label .. ": " .. (listed_rule.why or "not supported")
 
-	-- always logged: this only switches off the bot HUD, everything else in Streamlined Heisting loads as usual
 	log("[StreamlinedHeisting][BotHUD] not loading the team a.i HUD: " .. listed_rule.label .. " is enabled (" .. listed_source .. "), " .. (listed_rule.why or "it is not supported"))
 
 	return
@@ -185,15 +162,15 @@ end
 
 BotHUD.NET_ID = "sh_bot_state"
 BotHUD.HELLO_ID = "sh_bot_hello"
-BotHUD.HELLO_INTERVAL = 10 -- clients repeat their hello this often
-BotHUD.PEER_TIMEOUT = 25 -- host forgets a peer that stopped saying hello (left, or another player took the slot)
+BotHUD.HELLO_INTERVAL = 10 
+BotHUD.PEER_TIMEOUT = 25 
 BotHUD.NO_HOST_DATA_WARNING = 12
 BotHUD.mod_peers = BotHUD.mod_peers or {}
-BotHUD.HEARTBEAT = 5 -- host resends every bot's state this often (covers late joins and dropped messages)
-BotHUD.RESYNC = 1 -- everything is re-pushed to the HUD this often (vanilla resets bot radials when a mugshot is re-added)
+BotHUD.HEARTBEAT = 5 
+BotHUD.RESYNC = 1 
 BotHUD.DEFAULT_INTERVAL = 2
 BotHUD.ARMOR_EPSILON = 0.02
-BotHUD.PRIMARY_SELECTION = 2 -- HUDManager:set_teammate_ammo_amount maps selection index 2 to the primary panel
+BotHUD.PRIMARY_SELECTION = 2 
 BotHUD.states = BotHUD.states or {}
 BotHUD._logged = BotHUD._logged or {}
 
@@ -231,7 +208,6 @@ function BotHUD:_weapon_base(unit)
 	return base and base.ammo_base and base or nil
 end
 
--- host: the real clip. client: our own counter (clients never consume the real clip of a bot weapon)
 function BotHUD:_read_clip(base)
 	local ammo_base = base:ammo_base()
 	local max_clip = ammo_base and ammo_base:get_ammo_max_per_clip()
@@ -247,7 +223,6 @@ function BotHUD:_read_clip(base)
 	return base._sh_bot_clip or max_clip, max_clip
 end
 
--- client only: called from the NPC weapon's fire wrapper
 function BotHUD:on_client_bot_fire(base)
 	if not self.active then
 		return
@@ -266,7 +241,7 @@ function BotHUD:on_client_bot_fire(base)
 
 	local clip = base._sh_bot_clip or max_clip
 	if clip <= 0 then
-		-- a bot can't shoot with an empty mag, so a reload finished without us seeing it
+		
 		clip = max_clip
 	end
 
@@ -275,7 +250,7 @@ function BotHUD:on_client_bot_fire(base)
 	self:log_once("client_fire", "client counted a bot shot (%d/%d)", base._sh_bot_clip, max_clip)
 end
 
--- client only: the reload animation finished (NewNPCRaycastWeaponBase:on_reload)
+
 function BotHUD:on_client_bot_reloaded(base)
 	if not self.active then
 		return
@@ -295,7 +270,6 @@ function BotHUD:on_client_bot_reloaded(base)
 	end
 end
 
--- client only: the host says this bot started a reload, so its real mag is empty (drift correction)
 function BotHUD:on_reload_start(unit)
 	if not self.active or Network:is_server() or not self:is_bot(unit) then
 		return
@@ -313,7 +287,6 @@ local function fmt_remaining(value, t)
 	return value and string.format("%+.2f", value - t) or "nil"
 end
 
--- host: read the authoritative state of a bot
 function BotHUD:_read_host_state(name, unit, s, t)
 	local dmg = unit:character_damage()
 	if not dmg then
@@ -326,8 +299,6 @@ function BotHUD:_read_host_state(name, unit, s, t)
 	s.health = down and 0 or ratio
 	s.regen_end = nil
 
-	-- vanilla only has _regenerate_t (reset by hits). _sh_next_regen is an optional second timer some mods add (Streamlined
-	-- Heisting's constant regen), the radial follows whichever pulse comes next
 	local regen_t, sh_next = dmg._regenerate_t, dmg._sh_next_regen
 
 	if not down and ratio < 1 then
@@ -346,7 +317,6 @@ function BotHUD:_read_host_state(name, unit, s, t)
 	s.interval = math.max(char_tweak and char_tweak.REGENERATE_TIME or self.DEFAULT_INTERVAL, 0.01)
 end
 
--- host: a client with the mod said hello
 function BotHUD:_on_hello(peer_id)
 	if not self.active then
 		return
@@ -359,14 +329,12 @@ function BotHUD:_on_hello(peer_id)
 	if is_new then
 		self:log("peer %s runs the mod, sending it every bot's state", tostring(peer_id))
 
-		-- force a full resend on the next tick
 		for _, s in pairs(self.states) do
 			s.sent_t = nil
 		end
 	end
 end
 
--- host: tell clients about changes
 function BotHUD:_send_state(name, s, t)
 	if not next(self.mod_peers) or not LuaNetworking or not LuaNetworking.SendToPeer or not (managers.network and managers.network:session()) then
 		return
@@ -398,7 +366,6 @@ function BotHUD:_send_state(name, s, t)
 	self:log_once("sent_" .. name, "host sent the first state message for %s", name)
 end
 
--- client: let the host know this client runs the mod (the host only sends to peers that did)
 function BotHUD:_say_hello()
 	if Network:is_server() or not LuaNetworking or not LuaNetworking.SendToPeer or not (managers.network and managers.network:session()) then
 		return
@@ -417,7 +384,6 @@ function BotHUD:_say_hello()
 	self:log_once("hello", "sent hello to the host")
 end
 
--- client: state message from the host
 function BotHUD:_on_network_state(data)
 	if not self.active then
 		return
@@ -446,12 +412,10 @@ function BotHUD:_on_network_state(data)
 	self:log_once("received_" .. name, "client received the first state message for %s", name)
 end
 
--- both: push what changed to the bot's teammate panel
 function BotHUD:_render(panel_id, unit, s, t)
 	local hud = managers.hud
 	local show_host_state = Network:is_server() or s.host_data
 
-	-- a host without the mod never sends health/regen, so leave vanilla's full ring alone instead of showing a made-up value
 	if not show_host_state and s.first_seen and t - s.first_seen > self.NO_HOST_DATA_WARNING then
 		self:log_once("no_host_data", "no bot state received from the host after %ds, the host probably doesn't run this mod (health and regen stay at vanilla's full ring)", self.NO_HOST_DATA_WARNING)
 	end
@@ -462,7 +426,6 @@ function BotHUD:_render(panel_id, unit, s, t)
 		hud:set_teammate_health(panel_id, { current = s.health, total = 1, max = 1 })
 	end
 
-	-- clients don't run the regen timers, so keep counting on the last known schedule until the next message
 	if not Network:is_server() and s.regen_end and t > s.regen_end then
 		s.regen_end = s.regen_end + s.interval * math.ceil((t - s.regen_end) / s.interval)
 	end
@@ -475,14 +438,12 @@ function BotHUD:_render(panel_id, unit, s, t)
 		hud:set_teammate_armor(panel_id, { current = progress, total = 1, max = 1 })
 	end
 
-	-- vanilla's add_teammate_panel gives bots the team a.i colour, so this also repaints after a panel is (re)created
 	if s.color_id and s.pushed_color ~= s.color_id then
 		s.pushed_color = s.color_id
 
 		hud:set_teammate_callsign(panel_id, s.color_id)
 	end
 
-	-- the in-world name label and the outline are only coloured once by vanilla, so keep them in sync as well
 	if s.color_id and s.pushed_world_color ~= s.color_id then
 		s.pushed_world_color = s.color_id
 
@@ -498,7 +459,6 @@ function BotHUD:_render(panel_id, unit, s, t)
 	if clip and (s.pushed_clip ~= clip or s.pushed_max ~= max_clip) then
 		s.pushed_clip, s.pushed_max = clip, max_clip
 
-		-- the visible number on a teammate panel is the "total" field, so the mag count goes in there (no reserve shown)
 		hud:set_teammate_ammo_amount(panel_id, self.PRIMARY_SELECTION, max_clip, clip, clip, max_clip)
 	end
 end
@@ -540,7 +500,6 @@ function BotHUD:_update_bot(name, unit, t, color_id)
 	self:_render(panel_id, unit, s, t)
 end
 
--- player colours (tweak_data.chat_colors 1-4) that no human peer is using, in ascending order
 function BotHUD:_free_color_ids()
 	local used = {}
 	local session = managers.network and managers.network:session()
@@ -566,7 +525,6 @@ function BotHUD:_free_color_ids()
 	return free
 end
 
--- every bot with its assigned player colour, plus a name -> colour id map
 function BotHUD:_collect_bots()
 	local groupai = managers.groupai and managers.groupai:state()
 	local bots, colors = {}, {}
@@ -587,13 +545,12 @@ function BotHUD:_collect_bots()
 		end
 	end
 
-	-- every machine sorts the same way, so host and clients agree on who gets which colour
 	table.sort(bots, function(a, b)
 		return a.name < b.name
 	end)
 
 	local free_colors = self:_free_color_ids()
-	local team_ai_color = #tweak_data.chat_colors -- only used if there are more bots than free colours
+	local team_ai_color = #tweak_data.chat_colors
 
 	for i, bot in ipairs(bots) do
 		bot.color_id = free_colors[i] or team_ai_color
@@ -603,7 +560,6 @@ function BotHUD:_collect_bots()
 	return bots, colors
 end
 
--- used by CriminalsManager:character_color_id_by_unit (see criminalsmanager.lua) so freshly created labels start out right
 function BotHUD:color_id_for_unit(unit)
 	if not self.active then
 		return
@@ -618,7 +574,6 @@ function BotHUD:color_id_for_unit(unit)
 	end
 end
 
--- the label above a bot's head: vanilla colours the text, the carried-bag icon and the "fixing" text once at creation
 function BotHUD:_recolor_name_label(unit, color)
 	local unit_data = unit:unit_data()
 	local label_id = unit_data and unit_data.name_label_id
@@ -650,8 +605,6 @@ function BotHUD:_recolor_name_label(unit, color)
 	end
 end
 
--- the outline: human teammates get a "teammate" contour with their peer colour. Which contour a bot has isn't visible
--- from the lua, so recolour "teammate"/"friendly" and log what the bot actually has (once) to find out
 BotHUD.CONTOUR_TYPES = { teammate = true, friendly = true }
 
 function BotHUD:_recolor_contour(name, unit, vector_color)
@@ -688,8 +641,6 @@ function BotHUD:_recolor_world(unit, color_id)
 	self:_recolor_contour(name or "?", unit, vector_color)
 end
 
--- Panels are checked once per HUD (every panel must have vanilla's parts), then bot panels are kept in the bot layout.
--- This doesn't depend on the set_state hook, some HUD mods redefine set_state after us and would drop the hook.
 function BotHUD:_sweep_panels(t)
 	local panels = managers.hud._teammate_panels
 
@@ -733,11 +684,9 @@ function BotHUD:_sweep_panels(t)
 
 					self:log_once("swept_" .. tostring(panel._id), "teammate panel %s was switched to the full layout by the sweep (the set_state hook didn't run)", tostring(panel._id))
 				elseif panel._player_panel:alpha() < 0.5 then
-					-- something hid it again (another mod's set_state)
 					HUDTeammate.set_state(panel, "player")
 				end
 			elseif panel._sh_bot_panel then
-				-- the panel is no longer a bot's (removed, or a human took it) and the set_state hook didn't give it back
 				HUDTeammate._sh_bot_restore_layout(panel)
 
 				self:log_once("restored_" .. tostring(panel._id), "teammate panel %s was restored by the sweep", tostring(panel._id))
@@ -768,7 +717,6 @@ function BotHUD:update()
 	self:_say_hello()
 
 	for _, bot in ipairs(self:_collect_bots()) do
-		-- one broken bot must not spam the log every frame
 		local ok, err = pcall(self._update_bot, self, bot.name, bot.unit, t, bot.color_id)
 
 		if not ok and not self._logged.update_error then
