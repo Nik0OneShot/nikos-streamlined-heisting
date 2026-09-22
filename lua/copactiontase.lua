@@ -191,3 +191,16 @@ function CopActionTase:update(t)
 		end
 	end
 end
+
+
+-- useful bots code (https://github.com/segabl/pd2-useful-bots)
+-- everything below only runs on the host, keep it at the end of this file
+if not Network:is_server() then
+	return
+end
+
+-- Make bots aware of tasers starting a tase action
+Hooks:PostHook(CopActionTase, "init", "init_ub", function (self)
+	self._is_sabotaging_action = true
+	UsefulBots:force_attention(self._unit)
+end)

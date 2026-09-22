@@ -182,3 +182,62 @@ function CopDamage:_apply_damage_reduction(...)
 
 	return damage
 end
+
+
+-- useful bots code (https://github.com/segabl/pd2-useful-bots)
+Hooks:PreHook(CopDamage, "die", "die_ub", function (self, attack_data)
+	if UsefulBots.settings.ammo_drops >= 1 then
+		return
+	end
+
+	if self._pickup ~= "ammo" or not alive(attack_data.attacker_unit) then
+		return
+	end
+
+	if not managers.groupai:state():is_unit_team_AI(attack_data.attacker_unit) then
+		return
+	end
+
+	if math.random() >= math.max(0, UsefulBots.settings.ammo_drops) then
+		self._pickup = nil
+	end
+end)
+
+-- Stealth: the melee attack of an awake bot kills at once (an unaware guard dies from one hit anyway, an alerted one does not).
+-- The damage is capped at the health of the target later on, so a big number is all it takes. Only while the bots hold their
+-- fire, once the heist is loud their melee is a normal one again. Every hit of a bot that gets here is logged: a swing that is not
+-- logged never hit anything (the strike of lua/copactionshoot.lua found the target too far away or not in front of the bot)
+Hooks:PreHook(CopDamage, "damage_melee", "sh_stealth_instant_melee", function(self, attack_data)
+	if not attack_data then
+		return
+	end
+
+	local attacker = attack_data.attacker_unit
+	local base = alive(attacker) and attacker:base()
+
+	if not base or not base._sh_stealth_awake then
+		return
+	end
+
+	local lethal = UsefulBots.settings.stealth_instant_melee and UsefulBots.stealth:holds_fire(attacker) and self._HEALTH_INIT
+
+	StreamHeist:log("Stealth defense: the melee of %s hits %s (damage %d, %s, %d%% health)", UsefulBots.hold:bot_name(attacker), tostring(self._unit:base()._tweak_table), attack_data.damage or 0, lethal and "made lethal" or "normal damage", (self.health_ratio and self:health_ratio() or 1) * 100)
+
+	if lethal then
+		attack_data.damage = math.max(attack_data.damage or 0, lethal * 10)
+	end
+end)
+
+Hooks:PostHook(CopDamage, "damage_melee", "sh_stealth_melee_result", function(self, attack_data)
+	local attacker = attack_data and attack_data.attacker_unit
+	local base = alive(attacker) and attacker:base()
+
+	if base and base._sh_stealth_awake then
+		StreamHeist:log("Stealth defense: that hit %s, it is %s", tostring(self._unit:base()._tweak_table), self._dead and "dead" or "alive")
+
+		-- the pager, the body and the stash are its job now (req/bot_interact.lua)
+		if self._dead and UsefulBots.interact then
+			pcall(UsefulBots.interact.on_guard_down, UsefulBots.interact, attacker, self._unit, "killed")
+		end
+	end
+end)

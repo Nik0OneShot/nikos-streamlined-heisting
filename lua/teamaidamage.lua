@@ -1,5 +1,7 @@
--- Add missing friendly fire check
-TeamAIDamage.is_friendly_fire = PlayerDamage.is_friendly_fire
+-- Add missing friendly fire check (useful bots version, downed bots can not be hit by friendly fire)
+function TeamAIDamage:is_friendly_fire(...)
+	return not self:need_revive() and PlayerDamage.is_friendly_fire(self, ...)
+end
 
 -- port super serious shooter code to make team a.i regenerate health in "pulses" instead of a full heal.
 Hooks:OverrideFunction(TeamAIDamage, "_regenerated", function (self)
@@ -32,7 +34,7 @@ end)
 -- announce low health
 Hooks:PostHook(TeamAIDamage, "_apply_damage", "aaaaaa i need medic bag", function(self)
 	local t = TimerManager:game():time()
-	if (not self._said_hurt_t or self._said_hurt_t + 10 < t) and self._health_ratio < 0.33 and not self:need_revive() and not self._unit:sound():speaking() then
+	if UsefulBots.settings.announce_low_hp and (not self._said_hurt_t or self._said_hurt_t + 10 < t) and self._health_ratio < 0.33 and not self:need_revive() and not self._unit:sound():speaking() then
 		self._said_hurt_t = t
 		self._unit:sound():say("g80x_plu", true, true)
 	end
@@ -71,3 +73,35 @@ function TeamAIDamage:damage_bullet(...)
 
 	return result
 end
+
+
+-- useful bots code (https://github.com/segabl/pd2-useful-bots)
+-- mark taser when tased
+local damage_tase_original = TeamAIDamage.damage_tase
+function TeamAIDamage:damage_tase(attack_data, ...)
+	local result = damage_tase_original(self, attack_data, ...)
+
+	if result and attack_data then
+		local attacker = attack_data.attacker_unit
+		if alive(attacker) and attacker:base() and attacker:base().has_tag and attacker:base():has_tag("taser") then
+			attacker:contour():add("mark_enemy", true)
+			local priority_shout = attacker:base():char_tweak().priority_shout
+			if priority_shout then
+				self._unit:sound():say(priority_shout .. "x_any", true)
+			end
+
+			self._assist_SO_id = "TeamAIDamage_assistance" .. tostring(self._unit:key())
+			managers.groupai:state():add_special_objective(self._assist_SO_id, UsefulBots:get_assist_SO(self._unit))
+		end
+	end
+
+	return result
+end
+
+Hooks:PostHook(TeamAIDamage, "on_tase_ended", "on_tase_ended_ub", function (self)
+	if self._assist_SO_id then
+		managers.groupai:state():remove_special_objective(self._assist_SO_id)
+		UsefulBots:stop_assist_objective(self._unit)
+		self._assist_SO_id = nil
+	end
+end)

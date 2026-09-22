@@ -91,6 +91,12 @@ function CopBrain:update(unit, t, ...)
 end
 
 
+-- useful bots code (https://github.com/segabl/pd2-useful-bots)
+Hooks:PostHook(CopBrain, "on_intimidated", "on_intimidated_ub", function(self)
+	self._logic_data._next_intimidate_t = self._logic_data.t + tweak_data.player.movement_state.interaction_delay
+end)
+
+
 -- If Iter is installed and streamlined path option is used, don't make any further changes
 if Iter and Iter.settings and Iter.settings.streamline_path then
 	return

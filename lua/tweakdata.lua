@@ -6,6 +6,9 @@ for _, v in pairs(tweak_data.character) do
 		v.no_run_stop = true
 		v.always_face_enemy = true
 		v.crouch_move = false
+		if UsefulBots.settings.no_crouch then -- useful bots code
+			v.allowed_poses = { stand = true }
+		end
 		v.move_speed = tweak_data.character.presets.move_speed.lightning -- hopefully this works
 		v.weapon = clone(tweak_data.character.presets.weapon.gang_member) -- this too
 		v.weapon.weapons_of_choice = { primary = "wpn_fps_ass_amcar_npc" }

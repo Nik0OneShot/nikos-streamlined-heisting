@@ -423,3 +423,42 @@ function MarshalLogicAttack._upd_combat_movement(data)
 end
 
 function MarshalLogicAttack.update_cover(data) end
+
+
+-- useful bots code (https://github.com/segabl/pd2-useful-bots)
+local _chk_wants_to_take_cover_original = CopLogicAttack._chk_wants_to_take_cover
+function CopLogicAttack._chk_wants_to_take_cover(data, ...)
+	-- bots on their way to cover to reload always want cover
+	if data.is_team_ai and data.internal_data.sh_reload == "go" then
+		return true
+	end
+
+	if not data.is_team_ai or not data.unit:movement()._should_stay then
+		return _chk_wants_to_take_cover_original(data, ...)
+	end
+
+	-- bots that hold a position stay put unless they are patrolling, those take cover inside their area
+	if not UsefulBots.hold:is_patrolling(data) then
+		return
+	end
+
+	if UsefulBots.hold:is_withdrawing(data) and data.attention_obj and data.attention_obj.reaction >= AIAttentionObject.REACT_SHOOT then
+		return true
+	end
+
+	return _chk_wants_to_take_cover_original(data, ...)
+end
+
+local _update_cover_original = CopLogicAttack._update_cover
+function CopLogicAttack._update_cover(data, ...)
+	-- keep the cover a bot picked to reload in
+	if data.is_team_ai and data.internal_data.sh_reload == "go" then
+		return
+	end
+
+	if data.is_team_ai and UsefulBots.hold:is_patrolling(data) and UsefulBots.hold:update_cover(data) then
+		return
+	end
+
+	return _update_cover_original(data, ...)
+end
