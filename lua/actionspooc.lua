@@ -15,3 +15,16 @@ function ActionSpooc:_chk_target_invalid()
 	local record = managers.groupai:state():criminal_record(self._target_unit:key())
 	return not record or record.status == "disabled" or record.status == "dead"
 end
+
+
+-- useful bots code (https://github.com/segabl/pd2-useful-bots)
+-- everything below only runs on the host, keep it at the end of this file
+if not Network:is_server() then
+	return
+end
+
+-- make bots aware of cloaker attacks
+Hooks:PostHook(ActionSpooc, "init", "init_ub", function (self)
+	self._is_sabotaging_action = true
+	UsefulBots:force_attention(self._unit)
+end)
